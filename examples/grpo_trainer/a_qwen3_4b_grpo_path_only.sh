@@ -27,8 +27,8 @@ MODEL_PATH="${LATEST_STEP_DIR}/huggingface"
 echo "✅ 已自动定位最新模型路径: ${MODEL_PATH}"
 
 #改数据path_only还是edge_only
-TRAIN_FILE=${TRAIN_FILE:-/mnt/data/zwl/data/rl/qwen3_4b_grpo_path_only_train.parquet}
-VAL_FILE=${VAL_FILE:-/mnt/data/zwl/data/rl/qwen3_4b_grpo_path_only_val.parquet}
+TRAIN_FILE=${TRAIN_FILE:-/mnt/data/zwl/verl/data/rl/qwen3_4b_grpo_path_only_train.parquet}
+VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/qwen3_4b_grpo_path_only_val.parquet}
 
 #2）输出
 
