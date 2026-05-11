@@ -96,8 +96,18 @@ def main() -> None:
                 # preserve invalid lines
                 continue
 
-            # Build prompt: prefer `instruction` then `input` then full record
-            prompt = rec.get("instruction") or rec.get("input") or json.dumps(rec, ensure_ascii=False)
+            # Build prompt: combine instruction and input
+            instruction = rec.get("instruction", "").strip()
+            input_text = rec.get("input", "").strip()
+            
+            if instruction and input_text:
+                prompt_text = f"{instruction}\n\n{input_text}"
+            else:
+                prompt_text = instruction or input_text or json.dumps(rec, ensure_ascii=False)
+
+            # If the model is an instruct model, you might need a chat format here, e.g.:
+            # prompt_text = f"<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
+            prompt = prompt_text
 
             # For reproducibility you can set seeds or sampling params; here we
             # perform `repeats` independent calls.
