@@ -35,23 +35,29 @@ def extract_final(text: str) -> str:
     return m.group(1).strip()
 
 
-def run_generation(llm: "LLM", prompt: str, max_tokens: int = 512, temperature: float = 0.7, top_p: float = 1.0) -> str:
+def run_generation(llm: "LLM", prompt: str, repeats: int = 1, max_tokens: int = 512, temperature: float = 0.7, top_p: float = 1.0) -> list[str]:
     # Wrap generate call to be robust to small API differences.
-    # Using a simple sampling param set; users may tune as needed.
-    params = SamplingParams(max_tokens=max_tokens, temperature=temperature, top_p=top_p)
-    # vLLM generate yields response objects; adapt if API differs.
-    for resp in llm.generate([prompt], sampling_params=params):
-        # Each resp may contain .generations or .sequences depending on version
-        if hasattr(resp, "generation"):
-            text = resp.generation.text
+    # Set n=repeats to let vLLM batch independent generations concurrently.
+    params = SamplingParams(n=repeats, max_tokens=max_tokens, temperature=temperature, top_p=top_p)
+    # vLLM generate yields RequestOutput objects.
+    resp_list = llm.generate([prompt], sampling_params=params, use_tqdm=False)
+    results = []
+    if resp_list:
+        resp = resp_list[0]
+        if hasattr(resp, "outputs") and resp.outputs:
+            for out in resp.outputs:
+                results.append(out.text)
         elif hasattr(resp, "generations") and resp.generations:
-            text = resp.generations[0].text
-        elif hasattr(resp, "sequences") and resp.sequences:
-            text = resp.sequences[0].text
+            for gen in resp.generations:
+                results.append(gen.text)
         else:
-            text = str(resp)
-        return text
-    return ""
+            results.append(str(resp))
+    
+    # Pad to expected length just in case
+    while len(results) < repeats:
+        results.append("")
+        
+    return results
 
 
 def main() -> None:
@@ -81,7 +87,12 @@ def main() -> None:
     # Create LLM instance using one device. Depending on your vLLM version you
     # may need to pass different args (e.g., ``device_ids=[0]``). The server
     # will typically detect available GPU(s) based on environment vars.
-    llm = LLM(model=model_path)
+    # Set ``gpu_memory_utilization`` slightly lower to avoid OOM in parallel runs.
+    try:
+        llm = LLM(model=model_path, trust_remote_code=True, gpu_memory_utilization=0.85)
+    except Exception as e:
+        print(f"Failed to initialize vLLM (maybe try reducing GPU memory util further): {e}")
+        raise
 
     with in_path.open("r", encoding="utf-8") as inf, out_path.open("w", encoding="utf-8") as outf:
         for idx, line in enumerate(inf):
@@ -105,22 +116,34 @@ def main() -> None:
             else:
                 prompt_text = instruction or input_text or json.dumps(rec, ensure_ascii=False)
 
-            # If the model is an instruct model, you might need a chat format here, e.g.:
-            # prompt_text = f"<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
-            prompt = prompt_text
+            # Use vLLM's tokenizer to format correctly
+            tokenizer = llm.get_tokenizer()
+            if hasattr(tokenizer, "apply_chat_template"):
+                messages = [
+                    {"role": "system", "content": "You are an expert in solving scientific problems."},
+                    {"role": "user", "content": prompt_text}
+                ]
+                prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            else:
+                prompt = f"<|im_start|>system\nYou are an expert in solving scientific problems.<|im_end|>\n<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n"
+
+            print(f"[Worker {args.gpu_id}] Processing record index {idx}...")
 
             # For reproducibility you can set seeds or sampling params; here we
             # perform `repeats` independent calls.
-            for r in range(1, args.repeats + 1):
-                try:
-                    out_text = run_generation(llm, prompt, max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p)
-                except Exception as e:
-                    out_text = ""
+            try:
+                out_texts = run_generation(llm, prompt, repeats=args.repeats, max_tokens=args.max_tokens, temperature=args.temperature, top_p=args.top_p)
+            except Exception as e:
+                print(f"[Worker {args.gpu_id}] Generation failed for index {idx}: {e}")
+                out_texts = [""] * args.repeats
+                
+            for r, out_text in enumerate(out_texts, start=1):
                 final = extract_final(out_text)
                 rec[f"response{r}"] = out_text
                 rec[f"answer{r}"] = final
 
             outf.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            outf.flush()
 
 if __name__ == "__main__":
     main()
