@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-使用本地部署的 Qwen3-8B 模型判断推理正确性并计算 pass@k。
+使用本地部署的 Qwen3-8B 模型（多卡并行）判断推理正确性并计算 pass@k。
 
-无需提取答案：直接将【题目 + 参考答案(output) + 候选推理(response)】
-送给本地 Qwen3-8B，让模型自己判断候选是否得到了等价正确的结论。
+核心设计：不做任何答案提取，直接将【题目 + 完整参考答案(output) + 完整候选推理(response)】
+送给本地 Qwen3-8B，让模型自己判断候选的推理过程和最终结论是否与参考等价。
+
+多卡并行说明：
+    脚本会将 80 次判断任务（10 题 x 8 次）均匀分配到 N 张 GPU 上，
+    每张卡独立加载一份模型，并行处理不同的请求（数据并行）。
+
+显存要求（每卡）：
+    - bf16 模式: ~16-18 GB
+    - 4-bit 量化: ~6-8 GB
 
 使用方法:
-    # 基本用法（判断前 2 条问题的 8 次推理，用于快速测试）
+    # 默认：8卡并行，判断全部 10 条问题（80 次调用）
     python judge_by_local_qwen3.py
-
-    # 判断全部 10 条问题（80 次调用）
-    python judge_by_local_qwen3.py --num_questions 10
 
     # 指定其他路径
     python judge_by_local_qwen3.py \
@@ -18,168 +23,74 @@
         --input /mnt/data/zwl/verl/output/merged.jsonl \
         --output /mnt/data/zwl/verl/output/qwen3_judge_results.jsonl
 
-显存要求:
-    - bf16: 约 16~18 GB
-    - 若显存不足，脚本会自动尝试 4-bit 量化加载 (约 6~8 GB)
+    # 只用 4 张卡
+    python judge_by_local_qwen3.py --num_gpus 4
 """
 
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
 import torch
-from tqdm import tqdm
+import torch.multiprocessing as mp
 
-# ========================== 答案提取工具（复用成熟逻辑） ==========================
-
-
-def extract_nested_brace(text: str, start_keyword: str = "\\boxed{") -> str:
-    """从 text 中提取 start_keyword 开始的嵌套花括号内容。"""
-    idx = text.find(start_keyword)
-    if idx == -1:
-        return ""
-    brace_start = idx + len(start_keyword) - 1
-    if brace_start >= len(text) or text[brace_start] != "{":
-        alt = text.find("{", idx + len(start_keyword) - 1)
-        if alt == -1:
-            return ""
-        brace_start = alt
-    depth = 1
-    for i in range(brace_start + 1, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return text[idx : i + 1]
-    return ""
-
-
-def extract_final_tag(text: str) -> str:
-    if "<final>" not in text:
-        return ""
-    m = re.search(r"<final>(.*?)</final>", text, re.DOTALL)
-    return m.group(1).strip() if m else ""
-
-
-def extract_after_think(text: str) -> str:
-    if "</think>" not in text:
-        return ""
-    parts = text.split("</think>")
-    if len(parts) >= 2:
-        after = parts[-1].strip()
-        if len(after) > 30:
-            return after
-    return ""
-
-
-def extract_answer_from_response(response: str) -> str:
-    """按优先级从 response 中提取最终答案（用于展示，不用于判断）。"""
-    if not response:
-        return ""
-    final = extract_final_tag(response)
-    if final and len(final) > 5:
-        return final
-    boxed = extract_nested_brace(response, "\\boxed{")
-    if boxed and len(boxed) > 10:
-        return boxed
-    after_think = extract_after_think(response)
-    if after_think:
-        boxed2 = extract_nested_brace(after_think, "\\boxed{")
-        if boxed2 and len(boxed2) > 10:
-            return boxed2
-        final2 = extract_final_tag(after_think)
-        if final2 and len(final2) > 5:
-            return final2
-        if len(after_think) > 30:
-            return after_think
-    tail = response[-800:].strip()
-    if len(tail) > 50 and ("$" in tail or "\\" in tail):
-        return tail
-    return ""
-
-
-def extract_ground_truth(output: str) -> str:
-    """从原始 output 中提取参考答案。"""
-    if not output:
-        return ""
-    final = extract_final_tag(output)
-    if final and len(final) > 5:
-        return final
-    boxed = extract_nested_brace(output, "\\boxed{")
-    if boxed and len(boxed) > 10:
-        return boxed
-    if "<think>" in output:
-        parts = output.split("</think>")
-        if len(parts) >= 2:
-            return parts[-1].strip()
-    return output.strip()
-
-
-# ========================== LLM Judge Prompt ==========================
+# ========================== Judge Prompt ==========================
 
 JUDGE_SYSTEM_PROMPT = """You are a strict but fair mathematics and physics professor.
 Your task is to judge whether a student's reasoning and final answer are mathematically equivalent to the reference answer.
 
 Rules:
-1. Focus on whether the student's FINAL CONCLUSION is correct and equivalent to the reference.
-2. The student may use different notations or derivation paths; these are acceptable if mathematically equivalent.
-3. If the student is partially correct but misses critical terms, has wrong signs, or wrong constants, mark as WRONG.
-4. If the student gives no recognizable final answer, mark as WRONG.
-5. Output MUST be valid JSON: {"correct": true/false, "reason": "brief explanation in English or Chinese"}
+1. The reference contains a full derivation and a final answer. The final answer is the ground truth.
+2. The candidate also contains a full derivation and a final answer.
+3. Judge whether the candidate's FINAL CONCLUSION is correct and equivalent to the reference's final conclusion.
+4. The student may use different notations, different derivation paths, or present steps in different order; these are acceptable if mathematically equivalent.
+5. If the candidate is partially correct but misses critical terms, has wrong signs, wrong constants, or reaches an incorrect final formula, mark as WRONG.
+6. If the candidate gives no recognizable final answer, or the derivation is completely off-track, mark as WRONG.
+7. Output MUST be valid JSON: {"correct": true/false, "reason": "brief explanation"}
+8. Do NOT output thinking tags like <think>. Output JSON directly.
 """
 
 
 def build_judge_prompt(question: str, reference: str, candidate: str) -> str:
-    """构造判断 prompt。我们同时提供完整推理给模型，让它自行理解。"""
-    # 截断避免过长
-    q_trunc = question[:1000]
-    ref_trunc = reference[:2000]
-    cand_trunc = candidate[:3000]
-
+    """
+    构造判断 prompt。不做任何提取、不做任何截断，直接使用完整原文。
+    """
     prompt = f"""[Question]
-{q_trunc}
-{"... (truncated)" if len(question) > 1000 else ""}
+{question}
 
 [Reference Answer]
-{ref_trunc}
-{"... (truncated)" if len(reference) > 2000 else ""}
+{reference}
 
 [Student Answer]
-{cand_trunc}
-{"... (truncated)" if len(candidate) > 3000 else ""}
+{candidate}
 
 Judge: Does the Student Answer reach a conclusion equivalent to the Reference Answer?
-Respond with JSON only: {{"correct": true/false, "reason": "..."}}
+Think step by step, then respond with JSON only: {{"correct": true/false, "reason": "..."}}
 """
     return prompt
 
 
-# ========================== 本地模型加载与推理 ==========================
+# ========================== 单卡模型加载与推理 ==========================
 
 
-def load_model(model_path: str):
-    """加载本地 Qwen3-8B，若显存不足自动 fallback 到 4-bit。"""
-    print(f"Loading model from: {model_path}")
+def load_model_single_gpu(model_path: str, gpu_id: int):
+    """在指定 GPU 上加载模型。"""
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+    torch.cuda.set_device(gpu_id)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
 
-    # 先尝试标准 bf16 加载
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
             trust_remote_code=True,
             torch_dtype=torch.bfloat16,
-            device_map="auto",
+            device_map={"": gpu_id},
         )
-        print("Model loaded in bfloat16 mode.")
     except Exception as e:
-        print(f"Failed to load in bfloat16: {e}")
-        print("Trying 4-bit quantization (requires ~6-8GB VRAM)...")
+        print(f"[GPU {gpu_id}] bfloat16 failed: {e}, trying 4-bit...")
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
@@ -188,22 +99,19 @@ def load_model(model_path: str):
             model_path,
             trust_remote_code=True,
             quantization_config=quantization_config,
-            device_map="auto",
+            device_map={"": gpu_id},
         )
-        print("Model loaded in 4-bit mode.")
 
     model.eval()
     return model, tokenizer
 
 
-def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int = 256) -> dict:
-    """调用本地模型生成判断结果。"""
+def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int) -> dict:
     messages = [
         {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
 
-    # Qwen3 支持 apply_chat_template
     if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
         text = tokenizer.apply_chat_template(
             messages,
@@ -211,7 +119,6 @@ def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int = 256) 
             add_generation_prompt=True,
         )
     else:
-        # fallback: 简单拼接
         text = f"System: {JUDGE_SYSTEM_PROMPT}\n\nUser: {prompt}\n\nAssistant: "
 
     inputs = tokenizer(text, return_tensors="pt").to(model.device)
@@ -220,18 +127,21 @@ def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int = 256) 
         outputs = model.generate(
             **inputs,
             max_new_tokens=max_new_tokens,
-            do_sample=False,  # 判断任务用 greedy 更稳定
+            do_sample=False,
             pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
         )
 
-    # 解码新生成的部分
     generated_ids = outputs[0][inputs.input_ids.shape[1] :]
     raw_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-    # 解析 JSON
     try:
-        # 去除可能的 markdown code block
         cleaned = raw_text.strip()
+
+        # 1. 去掉 <think>...</think> 及其内容
+        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
+        cleaned = cleaned.strip()
+
+        # 2. 去掉 markdown code block
         if cleaned.startswith("```json"):
             cleaned = cleaned[7:]
         if cleaned.startswith("```"):
@@ -239,6 +149,15 @@ def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int = 256) 
         if cleaned.endswith("```"):
             cleaned = cleaned[:-3]
         cleaned = cleaned.strip()
+
+        # 3. 有时候 JSON 前面有额外文本，尝试找第一个 { 和最后一个 }
+        if cleaned and cleaned[0] != "{":
+            start = cleaned.find("{")
+            if start != -1:
+                end = cleaned.rfind("}")
+                if end != -1:
+                    cleaned = cleaned[start:end+1]
+
         result = json.loads(cleaned)
         if "correct" not in result:
             result["correct"] = False
@@ -248,11 +167,32 @@ def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int = 256) 
     except Exception as e:
         return {
             "correct": False,
-            "reason": f"JSON parse error: {e}, raw={raw_text[:200]!r}",
+            "reason": f"JSON parse error: {e}, raw={raw_text[:300]!r}",
         }
 
 
-# ========================== pass@k 计算 ==========================
+# ========================== 多卡 Worker ==========================
+
+
+def worker_fn(gpu_id, task_list, model_path, max_new_tokens, result_queue):
+    """
+    每个 worker 独占一张 GPU，处理分配到的任务列表。
+    task_list: [(q_idx, r_idx, prompt), ...]
+    """
+    print(f"[Worker GPU {gpu_id}] Loading model...")
+    model, tokenizer = load_model_single_gpu(model_path, gpu_id)
+    print(f"[Worker GPU {gpu_id}] Ready, processing {len(task_list)} tasks.")
+
+    for q_idx, r_idx, prompt in task_list:
+        result = generate_judgment(model, tokenizer, prompt, max_new_tokens)
+        result_queue.put((q_idx, r_idx, result))
+
+    del model
+    torch.cuda.empty_cache()
+    print(f"[Worker GPU {gpu_id}] Done.")
+
+
+# ========================== pass@k ==========================
 
 
 def compute_pass_at_k(correct_flags: list, k: int) -> float:
@@ -272,14 +212,14 @@ def compute_pass_at_k(correct_flags: list, k: int) -> float:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Judge reasoning correctness using local Qwen3-8B")
+    parser = argparse.ArgumentParser(description="Judge reasoning correctness using local Qwen3-8B (multi-GPU)")
     parser.add_argument("--model_path", default="/mnt/data/zwl/models/Qwen3-8B", help="Path to local Qwen3-8B model")
     parser.add_argument("--input", "-i", default="merged.jsonl", help="Path to merged.jsonl")
     parser.add_argument("--output", "-o", default="qwen3_judge_results.jsonl", help="Output JSONL path")
     parser.add_argument("--summary", "-s", default="qwen3_judge_summary.txt", help="Summary text path")
-    parser.add_argument("--num_questions", "-n", type=int, default=2, help="How many questions to judge (default 2 for test)")
-    parser.add_argument("--max_new_tokens", type=int, default=256, help="Max tokens for judgment generation")
-    parser.add_argument("--no_extract_display", action="store_true", help="Skip displaying extracted answer previews in summary")
+    parser.add_argument("--num_questions", "-n", type=int, default=10, help="How many questions to judge (default 10 = all)")
+    parser.add_argument("--max_new_tokens", type=int, default=12800, help="Max tokens for judgment generation (default 12800)")
+    parser.add_argument("--num_gpus", "-g", type=int, default=8, help="Number of GPUs to use (default 8)")
     args = parser.parse_args()
 
     in_path = Path(args.input)
@@ -297,33 +237,76 @@ def main():
 
     num_q = min(args.num_questions, len(records))
     total_calls = num_q * 8
-    print(f"Loaded {len(records)} questions, will judge {num_q} questions x 8 runs = {total_calls} calls")
+    print(f"Loaded {len(records)} questions")
+    print(f"Will judge {num_q} questions x 8 runs = {total_calls} calls")
+    print(f"Using {args.num_gpus} GPUs, max_new_tokens={args.max_new_tokens}")
+    print("NOTE: No answer extraction -- sending FULL response text to judge model.")
+    print("")
 
-    # 加载模型
-    model, tokenizer = load_model(args.model_path)
+    # 构建所有任务：直接使用完整 output 和 response，不做任何提取
+    all_tasks = []
+    for q_idx in range(num_q):
+        rec = records[q_idx]
+        question = rec.get("input", "")
+        reference = rec.get("output", "")        # 完整参考答案
+        for r_idx in range(1, 9):
+            candidate = rec.get(f"response{r_idx}", "")  # 完整候选推理
+            prompt = build_judge_prompt(question, reference, candidate)
+            all_tasks.append((q_idx, r_idx, prompt))
 
-    # 开始判断
+    # 按 GPU 数量切分任务
+    num_gpus = args.num_gpus
+    task_chunks = [[] for _ in range(num_gpus)]
+    for i, task in enumerate(all_tasks):
+        task_chunks[i % num_gpus].append(task)
+
+    # 启动多进程
+    mp.set_start_method("spawn", force=True)
+    result_queue = mp.Queue()
+    processes = []
+
+    for gpu_id in range(num_gpus):
+        p = mp.Process(
+            target=worker_fn,
+            args=(gpu_id, task_chunks[gpu_id], args.model_path, args.max_new_tokens, result_queue),
+        )
+        p.start()
+        processes.append(p)
+
+    # 收集结果
+    results = {}
+    expected = len(all_tasks)
+    print(f"Collecting results from {num_gpus} workers...")
+    for i in range(expected):
+        q_idx, r_idx, result = result_queue.get()
+        results[(q_idx, r_idx)] = result
+        if (i + 1) % 10 == 0 or (i + 1) == expected:
+            print(f"  Progress: {i + 1}/{expected}")
+
+    for p in processes:
+        p.join()
+
+    print(f"\nAll {expected} judgments collected.")
+
+    # 汇总
     all_results = []
     summary_lines = []
     summary_lines.append("=" * 80)
-    summary_lines.append("Local Qwen3-8B Judge Report")
+    summary_lines.append("Local Qwen3-8B Multi-GPU Judge Report")
     summary_lines.append("=" * 80)
+    summary_lines.append("Mode: FULL response comparison (no answer extraction)")
 
     total_correct = 0
     total_judged = 0
 
-    pbar = tqdm(total=total_calls, desc="Judging")
-
     for q_idx in range(num_q):
         rec = records[q_idx]
-        question = rec.get("input", "")
-        reference_full = rec.get("output", "")
-        reference_extracted = extract_ground_truth(reference_full)
+        ref_preview = rec.get("output", "")[:200]   # 仅用于展示
+        cand_preview = rec.get("response1", "")[:100]  # 仅用于展示
 
         q_result = {
             "index": q_idx,
-            "question": question[:300],
-            "reference_extracted": reference_extracted,
+            "question": rec.get("input", "")[:300],
             "judgments": [],
         }
         all_results.append(q_result)
@@ -332,45 +315,36 @@ def main():
 
         summary_lines.append(f"\n{'─' * 80}")
         summary_lines.append(f"Question {q_idx}")
-        summary_lines.append(f"Reference preview: {reference_extracted[:150]!r}")
+        summary_lines.append(f"Reference preview: {ref_preview!r}")
 
         for r_idx in range(1, 9):
-            candidate_full = rec.get(f"response{r_idx}", "")
-            candidate_extracted = extract_answer_from_response(candidate_full)
-
-            # 构建 prompt：送完整原文给模型判断
-            prompt = build_judge_prompt(question, reference_full, candidate_full)
-            judgment = generate_judgment(model, tokenizer, prompt, max_new_tokens=args.max_new_tokens)
-
-            is_correct = bool(judgment.get("correct", False))
-            reason = judgment.get("reason", "")
+            result = results.get((q_idx, r_idx), {"correct": False, "reason": "missing"})
+            is_correct = bool(result.get("correct", False))
+            reason = result.get("reason", "")
 
             correct_flags.append(is_correct)
             if is_correct:
                 total_correct += 1
             total_judged += 1
 
+            # 候选预览：直接截断前 120 字符，不提取
+            candidate_full = rec.get(f"response{r_idx}", "")
+            cand_snippet = candidate_full[:120].replace("\n", " ")
+
             q_result["judgments"].append({
                 "run": r_idx,
                 "correct": is_correct,
                 "reason": reason,
-                "candidate_extracted": candidate_extracted if not args.no_extract_display else "",
+                "candidate_preview": cand_snippet,
             })
 
             marker = "✅" if is_correct else "❌"
-            summary_lines.append(
-                f"  {marker} Run{r_idx:02d}: {reason[:120]}"
-            )
-            if not args.no_extract_display:
-                summary_lines.append(f"      extracted: {candidate_extracted[:100]!r}")
-
-            pbar.update(1)
+            summary_lines.append(f"  {marker} Run{r_idx:02d}: {reason[:120]}")
+            summary_lines.append(f"      candidate preview: {cand_snippet!r}")
 
         for k in (1, 2, 4, 8):
             p = compute_pass_at_k(correct_flags, k)
             summary_lines.append(f"      pass@{k} = {p:.4f}")
-
-    pbar.close()
 
     summary_lines.append(f"\n{'=' * 80}")
     summary_lines.append(f"Overall: {total_correct}/{total_judged} correct ({total_correct/max(total_judged,1)*100:.1f}%)")
