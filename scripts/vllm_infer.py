@@ -107,6 +107,7 @@ def main() -> None:
                 except Exception as e:
                     out_text = ""
                 final = extract_final(out_text)
+                rec[f"response{r}"] = out_text
                 rec[f"answer{r}"] = final
 
             outf.write(json.dumps(rec, ensure_ascii=False) + "\n")
