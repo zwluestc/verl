@@ -87,6 +87,7 @@ class NaiveRewardManager(AbstractRewardManager):
                 solution_str=response_str,
                 ground_truth=ground_truth,
                 extra_info=extra_info,
+                prompt_str=prompt_str,
             )
 
             if isinstance(score, dict):
