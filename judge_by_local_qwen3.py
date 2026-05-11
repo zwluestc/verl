@@ -29,6 +29,7 @@
 
 import argparse
 import json
+import re
 import os
 import sys
 from pathlib import Path
