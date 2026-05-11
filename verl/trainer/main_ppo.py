@@ -345,9 +345,15 @@ class TaskRunner:
         from verl.utils import hf_processor, hf_tokenizer
 
         trust_remote_code = config.data.get("trust_remote_code", False)
-        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        
+        tokenizer_path = config.actor_rollout_ref.model.get("tokenizer_path", None)
+        if tokenizer_path is None:
+            tokenizer_path = config.actor_rollout_ref.model.path
+        tokenizer_path = copy_to_local(tokenizer_path, use_shm=config.actor_rollout_ref.model.get("use_shm", False))
+        
+        tokenizer = hf_tokenizer(tokenizer_path, trust_remote_code=trust_remote_code)
         # Used for multimodal LLM, could be None
-        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+        processor = hf_processor(tokenizer_path, trust_remote_code=trust_remote_code, use_fast=True)
 
         resource_pool_manager = self.init_resource_pool_mgr(config)
 
