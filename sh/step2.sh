@@ -5,7 +5,7 @@ set -euo pipefail
 # Adjust PYTHON_BIN if you need to use a virtualenv's python.
 PYTHON_BIN=${PYTHON_BIN:-python}
 MODEL_PATH=/mnt/data/zwl/models/Qwen3-8B
-INPUT_FILE=/mnt/data/zwl/verl/data/mixed_10jsonl
+INPUT_FILE=/mnt/data/zwl/verl/data/mixed_10.jsonl
 OUTPUT_DIR=/mnt/data/zwl/verl/output
 REPEATS=8
 WORKERS=8
@@ -25,7 +25,7 @@ for ((i=0;i<WORKERS;i++)); do
   # Export CUDA_VISIBLE_DEVICES for this subprocess so vLLM picks the correct GPU.
   (
     export CUDA_VISIBLE_DEVICES=$i
-    "$PYTHON_BIN" scripts/vllm_infer.py \
+    "$PYTHON_BIN" /mnt/data/zwl/verl/scripts/vllm_infer.py \
       --model "$MODEL_PATH" \
       --input "$INPUT_FILE" \
       --output "$OUT_PART" \

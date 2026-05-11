@@ -135,3 +135,31 @@ python3 -m verl.trainer.main_ppo \
     trainer.test_freq=${TEST_FREQ} \
     trainer.total_epochs=${TOTAL_EPOCHS} \
     "$@"
+    
+# ==========================================
+# 5. 训练结束后，自动合并 FSDP 权重为 HuggingFace 格式
+# ==========================================
+echo "🏁 训练结束，开始寻找最新的 Checkpoint 进行合并..."
+
+# 自动寻找刚才 GRPO 训练输出的最新 step 文件夹
+LATEST_GRPO_STEP_DIR=$(ls -d ${OUTPUT_DIR}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
+
+if [ -n "$LATEST_GRPO_STEP_DIR" ]; then
+    echo "🔍 找到最新 GRPO Checkpoint: ${LATEST_GRPO_STEP_DIR}"
+    
+    ACTOR_DIR="${LATEST_GRPO_STEP_DIR}/actor"
+    HF_OUTPUT_DIR="${LATEST_GRPO_STEP_DIR}/huggingface"
+    
+    mkdir -p "${HF_OUTPUT_DIR}"
+    
+    echo "⚙️ 开始执行 verl.model_merger 将 FSDP 转换为 HF 格式..."
+    # 调用 verl 官方合并工具
+    python3 -m verl.model_merger merge \
+        --backend fsdp \
+        --local_dir "${ACTOR_DIR}" \
+        --target_dir "${HF_OUTPUT_DIR}"
+        
+    echo "✅ 转换完成！HuggingFace 格式权重已自动保存在: ${HF_OUTPUT_DIR}"
+else
+    echo "⚠️ 未找到任何输出的 global_step 文件夹，跳过转换。"
+fi

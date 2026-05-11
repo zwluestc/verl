@@ -111,8 +111,5 @@ def main() -> None:
 
             outf.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
-    llm.close()
-
-
 if __name__ == "__main__":
     main()
