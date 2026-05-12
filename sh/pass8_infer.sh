@@ -4,7 +4,7 @@ set -euo pipefail
 # Parallel vLLM inference launcher for 8 GPUs.
 # Adjust PYTHON_BIN if you need to use a virtualenv's python.
 PYTHON_BIN=${PYTHON_BIN:-python}
-MODEL_PATH=/mnt/data/zwl/models/Qwen3-4B-Base
+MODEL_PATH=/mnt/data/zwl/models/Qwen3-8B
 INPUT_FILE=/mnt/data/zwl/verl/data/mixed_1000.jsonl
 OUTPUT_DIR=/mnt/data/zwl/verl/output
 REPEATS=8
