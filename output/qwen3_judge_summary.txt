@@ -6,20 +6,20 @@ Mode: Extract <final> answers before judging
 ────────────────────────────────────────────────────────────────────────────────
 Question 0
 Reference final: '\\boxed{M(h_1,h_2,z_{01},z_{02},t_0) = \\sum_{j=1}^{2}\\left[\\sum_{k=0}^{m_j-1}\\int_0^{T_j(h_j)} F_j^{\\pm}\\!\\Bigl(h_1,h_2,\\,z_{01}+\\Omega_1(h_1)(kT_j+s),\\,z_{02}+\\Omega_2(h_2)(kT_j+s),\\,\\Omega(t_0+kT_j+s'
-  ❌ Run01: The student's answer incorrectly uses z01 instead of z02 and Ω1 instead of Ω2 in the phase arguments for subsystem j=2. 
-      candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = \\varepsilon \\sum_{k=0}^{m_1 - 1} \\int_0^{T_1} F_1^{\\pm}(h_1, h_2, z_{01} + \\Omega_1(h'
+  ❌ Run01: The student's answer incorrectly simplifies the impact-jump contribution to -εγ m_j (dot Q_j)^2, omitting the sum over ℓ
+      candidate final: 'where $ z_1 = z_{01} + \\Omega_1(h_1)(kT_j + s) $, $ z_2 = z_{02} + \\Omega_2(h_2)(kT_j + s) $, and $ \\Omega(t_0 + kT_j + '
   ❌ Run02: The student's answer incorrectly aggregates integrals over total period m₀T instead of summing over individual orbit per
       candidate final: 'The sub-harmonic Melnikov function is given by: $$ M(h_1,h_2,z_{01},z_{02},t_0) = \\varepsilon \\left[ \\int_{0}^{m_0 T} F_'
-  ❌ Run03: The student's answer incorrectly replaces the sum over impact events (ℓ) and orbit periods (k) with m_j γ (dot Q_j)^2, m
-      candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = \\varepsilon \\left[ \\sum_{j=1}^2 \\left( \\sum_{k=0}^{m_j-1} \\int_0^{T_j} F_j^{\\pm}(h_1,'
+  ❌ Run03: JSON parse failed, raw="<think>\nOkay, let's tackle this problem. The user wants to know if the student's final answer i
+      candidate final: 'becomes:  $$ \\Delta H_j = -\\varepsilon \\gamma (\\dot{Q}_j)^2 $$  ---  ### **2. Smooth-Arc Integral**  We integrate the pe'
   ❌ Run04: The student's answer incorrectly uses k*T_1 and k*T_2 in phase arguments for F_j^±, which deviate from the reference's k
       candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = \\varepsilon \\left[ \\sum_{k=0}^{m_1 - 1} \\int_0^{T_1(h_1)} F_1^{\\pm}(z_{01} + \\Omega_1'
-  ❌ Run05: The student's answer simply states M=0, but the reference answer provides the explicit form of the Melnikov function M(h
-      candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = 0'
-  ❌ Run06: The student's answer incorrectly omits the phase shift terms $kT_j$ in the integrals, which are essential for tracking t
-      candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = \\varepsilon \\left[ m_1 \\int_0^{T_1(h_1)} F_1^{\\pm}(h_1, h_2, z_{01} + \\Omega_1(h_1)s,'
-  ❌ Run07: The student answer only states the existence condition M=0 but does not provide the explicit formula for the Melnikov fu
-      candidate final: '\\text{Existence condition: } M(h_1, h_2, z_{01}, z_{02}, t_0) = 0.'
+  ❌ Run05: The student's answer incorrectly simplifies the phase arguments in the smooth-arc integrals by omitting the k-dependent 
+      candidate final: 'elta H_j \\big|_{\\text{impact}} = -\\varepsilon\\gamma (\\dot{Q}_j)^2. $$  ---  ### **2. Smooth-Arc Integral**  The smooth-a'
+  ❌ Run06: The student's answer lacks the k index in the phase arguments for z1 and z2, which are essential for the correct integra
+      candidate final: 'comes: $$ \\Delta H_j \\approx -\\varepsilon\\gamma (\\dot{Q}_j)^2_x, $$ where $ (\\dot{Q}_j)^2_x $ denotes the square of the '
+  ❌ Run07: The student's answer omits the explicit evaluation of $\dot{Q}_j$ at the impact phase $z_j^{(\ell)}$, which is critical 
+      candidate final: '## **Step 3: Accumulation and Total $ M $**  We now sum the smooth-arc integrals over all $ m_j $ orbits and add the tot'
   ❌ Run08: The student's answer incorrectly omits the summation over k in the phase arguments (z_{01}+Ω_1(h_1)(kT_j+s)) and the imp
       candidate final: 'M(h_1, h_2, z_{01}, z_{02}, t_0) = \\varepsilon \\sum_{j=1}^2 m_j \\int_0^{T_j(h_j)} F_j^{\\pm}(z_{01} + \\Omega_1(h_1)s, z_{'
       pass@1 = 0.0000
@@ -30,22 +30,22 @@ Reference final: '\\boxed{M(h_1,h_2,z_{01},z_{02},t_0) = \\sum_{j=1}^{2}\\left[\
 ────────────────────────────────────────────────────────────────────────────────
 Question 1
 Reference final: '$$\\boxed{\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^{2}}$$'
-  ✅ Run01: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run02: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run03: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run04: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run05: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run06: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run07: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
-  ✅ Run08: The student's answer matches the reference answer exactly. Both express σ²* as the square of the difference between y_pr
-      candidate final: '\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^2'
+  ✅ Run01: The student's final answer exactly matches the reference answer: σ²* = (y_pred - y_hat)², which is mathematically equiva
+      candidate final: 'To find the value of $\\sigma^{2*}$ that minimizes the heteroscedastic Gaussian negative log-likelihood (NLL) loss, we be'
+  ✅ Run02: The student's final answer σ²* = (y_pred - y_hat)² is mathematically identical to the reference answer.
+      candidate final: '要找到使负对数似然损失函数 $ L_{\\mathrm{NLL}} $ 最小的 $\\sigma^2$，我们从给定的损失函数出发：  $$ L_{\\mathrm{NLL}} = \\frac{1}{2} \\left[ \\frac{(y_{\\mat'
+  ✅ Run03: The student's final answer exactly matches the reference answer: σ²* = (y_pred - y_hat)². All steps are mathematically v
+      candidate final: '要找到使负对数似然损失函数 $ L_{\\mathrm{NLL}} $ 最小的 $\\sigma^{2*}$，我们从给定的损失函数出发：  $$ L_{\\mathrm{NLL}} = \\frac{1}{2}\\left[\\frac{(y_{\\ma'
+  ✅ Run04: The student's final answer exactly matches the reference answer: σ²* = (y_pred - y_hat)². All critical steps are correct
+      candidate final: 'To find the value of $\\sigma^{2*}$ that minimizes the negative log-likelihood (NLL) loss function:  $$ L_{\\mathrm{NLL}} '
+  ✅ Run05: The student's final answer exactly matches the reference answer: σ²* = (y_pred - y_hat)². All critical steps are correct
+      candidate final: '要找到使负对数似然损失函数 $ L_{\\mathrm{NLL}} $ 最小的 $\\sigma^2$，我们从给定的损失函数出发：  $$ L_{\\mathrm{NLL}} = \\frac{1}{2}\\left[\\frac{(y_{\\mathr'
+  ✅ Run06: The student's final answer σ²* = (y_pred - y_hat)² exactly matches the reference answer, with no missing terms or errors
+      candidate final: 'To find the value of $\\sigma^{2*}$ that minimizes the per-step heteroscedastic Gaussian negative log-likelihood loss:  $'
+  ✅ Run07: The student's final answer exactly matches the reference answer: σ²* = (y_pred - y_hat)². All critical terms are present
+      candidate final: 'To find the unique value $\\sigma^{2*}$ that minimizes the per-step heteroscedastic Gaussian negative log-likelihood (NLL'
+  ✅ Run08: The student's final answer exactly matches the reference answer, with σ²* expressed as (y_pred - y_hat)², which is mathe
+      candidate final: 'To find the unique value of $\\sigma^{2*}$ that minimizes the per-step heteroscedastic Gaussian negative log-likelihood ('
       pass@1 = 1.0000
       pass@2 = 1.0000
       pass@4 = 1.0000
@@ -54,22 +54,22 @@ Reference final: '$$\\boxed{\\sigma^{2*} = (y_{\\mathrm{pred}} - \\hat{y})^{2}}$
 ────────────────────────────────────────────────────────────────────────────────
 Question 2
 Reference final: '\\boxed{\n\\textbf{Case (a): Observed variable}\\;(x \\in X_K,\\text{ known value }x_0)\\\\\nb(x^C_j) = \\mathbf{1}[x^C_j = x^C_{j,0}],\\quad Z_C = \\mu_{F\\to x^C_j}(x^C_{j,0})\\cdot\\prod_{f\\in N(x^C_j)\\setminus\\{'
-  ❌ Run01: The student's answer incorrectly defines normalization constants (Z_C=1, Z_F=Z_M=sum over all states) and uses δ(x-x0) i
-      candidate final: '\\begin{aligned} &\\text{(a) Known variable: } \\mu_{x}(x) = \\delta(x - x_0), \\quad Z_C = 1, \\quad Z_F = \\sum_{x^F, x^M, x^'
-  ❌ Run02: The student's answer lacks per-variable normalization constants and correct message formulations. Case (a) omits product
-      candidate final: '\\begin{aligned} &\\text{(a) Known variable: } \\mu_{F \\to x}(x) = Z \\cdot \\delta(x - x_0), \\quad Z = 1 \\\\ &\\text{(b) Unkno'
-  ❌ Run03: The student's answer for case (a) omits the product of messages from other factors (N(x)\{F\}) in normalization constant
-      candidate final: '\\begin{aligned} &\\text{(a) Known variable (e.g., } x^C_j\\text{): } \\mu_{x^C_j}(x^C_j) = \\mathbf{1}[x^C_j = x_0] \\\\ &\\qua'
-  ❌ Run04: The student's answer for case (a) incorrectly sets Z_C = 1 and introduces μ_{x^C_j} as a belief, whereas the reference a
-      candidate final: '\\begin{aligned} &\\text{(a)}\\quad \\mu_{x^C_j}(x^C_j) = \\mathbf{1}[x^C_j = x_0], \\quad \\mu_{F \\to x^F_j}(x^F_j) = \\frac{1}'
-  ❌ Run05: The student's answer defines messages as proportional to indicators (case a) and sums over factor variables (case b), wh
-      candidate final: '\\begin{aligned} &\\text{For regime (a):} \\\\ &\\mu_{F \\to x^C_j}(x^C_j) = Z_C \\cdot \\mathbf{1}[x^C_j = x_0], \\quad \\mu_{F \\'
-  ❌ Run06: The student's answer provides messages (μ) rather than the required beliefs (b) and normalization constants (Z) as in th
-      candidate final: '\\begin{aligned} &\\text{(a) Known child } x^C_j = x_0: \\\\ &\\quad \\mathbf{1}[x^C_j = x_0], \\quad \\mu_{F \\to x^F_j}(x^F_j) '
-  ❌ Run07: The student's answer incorrectly represents the normalization constants and message passing structure. In case (a), it o
-      candidate final: '\\begin{aligned} &\\text{(a) Known variable } x: \\mu_{x}(x) = \\delta(x, x_0) \\\\ &\\quad \\text{Other variables: } \\mu_{x}(x)'
-  ❌ Run08: The student's answer for case (a) incorrectly defines normalization constants without including contributions from other
-      candidate final: '\\begin{aligned} &\\text{(a) Known variable } x \\in X_K: \\quad \\mu_{x}(x) = \\mathbf{1}[x = x_0], \\quad \\mu_{F \\to x}(x) = '
+  ❌ Run01: The student's answer incorrectly sets Z_C = 1 for case (a) and uses delta functions instead of indicator functions. For 
+      candidate final: 'F \\to F}(x^F) $$ Here, $ \\mu_{x \\to F}(x) $ represents the message from the variable to the factor. Since the child is k'
+  ❌ Run02: The student's answer incorrectly sets normalization constants Z=1 in both cases, whereas the reference answer explicitly
+      candidate final: 's to $ X_K $ with known genotype value $ x_0 $**  In this regime, the variable node (e.g., father, mother, or child) is '
+  ❌ Run03: The student's answer for part (a) incorrectly uses summations for normalization constants instead of products, and omits
+      candidate final: ') \\cdot \\mu_{x^M_j \\to F}(x^M_j), \\quad Z_M = \\sum_{x^M_j} \\sum_{x^F_j} F(x^F_j, x^M_j, x_0) \\cdot \\mu_{x^F_j \\to F}(x^F'
+  ❌ Run04: The student's answer for case (a) incorrectly sets Z_C, Z_F, Z_M to 1 or sums over variables instead of using product te
+      candidate final: '\\to F}(x^F_j) \\cdot \\mu_{x^C_j \\to F}(x^C_j) $$  $$ \\mu_{F \\to x^C_j}(x^C_j) = \\frac{1}{Z_F} \\sum_{x^F_j, x^M_j} F(x^F_j'
+  ❌ Run05: The student's answer focuses on messages (μ) rather than beliefs (b(x)) as required. The reference answer defines belief
+      candidate final: '- **For the child $ x^C_j $**:   $$   \\mu_{F \\to x^C_j}(x^C_j) = Z_C \\cdot \\mathbf{1}[x^C_j = x_0]   $$ - **For the fath'
+  ❌ Run06: The student's answer for case (a) incorrectly uses sum-based expressions for known variables (father/mother) instead of 
+      candidate final: 'nd normalization constants.  #### **Marginal Belief Expressions:**  - **Child $ x^C_j $:**   $$   \\boxed{\\mathbf{1}[x^C_'
+  ❌ Run07: The student's answer for case (a) omits the product of generic messages from other factors (μ_{f→x}) in normalization co
+      candidate final: 'e. For example, if the child $ x^C_j $ is known to be $ x_0 $, its marginal belief is:  $$ \\mu_{x^C_j}(x) = \\delta(x, x_'
+  ❌ Run08: The student's answer for case (a) incorrectly defines normalization constants as products of indicator functions and Z_x
+      candidate final: 'j}(x^F_j) = \\mathbf{1}[x^F_j = x_0] \\cdot Z_F   $$ - For the mother $ x^M_j $:     $$   \\mu_{F \\to x^M_j}(x^M_j) = \\math'
       pass@1 = 0.0000
       pass@2 = 0.0000
       pass@4 = 0.0000
@@ -102,22 +102,22 @@ Reference final: '\\boxed{C}'
 ────────────────────────────────────────────────────────────────────────────────
 Question 4
 Reference final: '$$\n\\boxed{\n\\begin{aligned}\n&\\text{Define: }\\mathcal{A} = 2\\rho^*\\cos(2\\alpha) + (\\rho^{*2}-1)\\sin(2\\alpha)\\cos(\\varphi^*+\\Delta\\delta),\\\\\n&\\phantom{\\text{Define: }}\\mathcal{B} = \\rho^*\\sin(2\\alpha)\\si'
-  ✅ Run01: The student's answer matches the reference answer in all three loci. The SN locus is identical. The PD locus correctly i
-      candidate final: '\\begin{aligned} &\\text{SN: } (c_{\\rho\\rho} c_{\\varphi\\varphi} - c_{\\rho\\varphi} c_{\\varphi\\rho}) \\cdot \\mathcal{A} \\cdot'
-  ❌ Run02: The student's answer is missing the SN and PD loci and contains incorrect denominators in the NS equation. The reference
-      candidate final: '\\begin{aligned} &\\frac{c_{\\rho\\rho} \\mathcal{A}}{(1+\\rho^*)^2} + \\frac{c_{\\varphi\\varphi} \\mathcal{B}}{1+\\rho^*} + \\frac'
+  ✅ Run01: The student's answer correctly substitutes A and B into all three bifurcation conditions, matches the reference's expand
+      candidate final: 'hcal{A} \\mathcal{B}}{(1 + \\rho^*{}^2)^3} = 0. $$  ---  ### **3. NS Locus (Neimark-Sacker Bifurcation)**  The condition i'
+  ❌ Run02: The student's PD and NS loci incorrectly use denominators (1+ρ*)² and (1+ρ*) instead of (1+ρ*²)² and (1+ρ*²) from the or
+      candidate final: 'derived by substituting the explicit expressions for $ A $ and $ B $ into the given conditions. Using the shorthands $ \\'
   ✅ Run03: The student's final answer matches the reference answer exactly in all three loci, including the correct substitution of
       candidate final: 'The fully expanded bifurcation loci are as follows:  1. **SN Locus**:   $$ (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\var'
-  ❌ Run04: The student's answer incorrectly uses denominators (1 + ρ^*) instead of (1 + ρ^*2) in all terms, and the NS inequality i
-      candidate final: '\\begin{aligned} &\\text{SN: } (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\cdot \\frac{\\mathcal{A} \\'
-  ❌ Run05: The student's answer incorrectly uses denominators (1 + ρ*) instead of (1 + ρ*²) in the PD and NS loci. This alters the 
-      candidate final: '\\begin{aligned} &\\text{SN: } (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\cdot \\mathcal{A} \\cdot \\'
-  ✅ Run06: The student's answer matches the reference answer in all three loci. The SN and PD conditions are identical. The NS cond
-      candidate final: '\\begin{aligned} &\\text{(SN)}\\quad (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\cdot \\mathcal{A} \\c'
-  ✅ Run07: The student's answer matches the reference answer in all three bifurcation loci. The SN, PD, and NS conditions are fully
-      candidate final: '\\begin{aligned} &\\text{(SN)}\\quad (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\cdot \\mathcal{A} \\c'
+  ✅ Run04: The student's answer correctly substitutes A and B with their denominators, properly expands all three bifurcation condi
+      candidate final: '}, $$ and $$ AB = \\frac{\\mathcal{A} \\cdot \\mathcal{B}}{(1 + \\rho^*)^3}. $$  Thus, the PD locus becomes: $$ 4 + 2\\left( \\'
+  ❌ Run05: The student's answer incorrectly uses (1 + ρ*)² and (1 + ρ*) in denominators instead of (1 + ρ*²)^2 and (1 + ρ*²) as req
+      candidate final: '\\boxed{ \\begin{aligned} &\\text{SN: } (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\cdot \\mathcal{A}'
+  ✅ Run06: The student's answer matches the reference answer in all three bifurcation loci. The SN and PD loci are identical. The N
+      candidate final: '**   The condition $ p(+1) = 0 $ simplifies to:   $$ (c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}) \\'
+  ✅ Run07: The student's answer matches the reference answer exactly in all three loci, including the definitions of A and B, the S
+      candidate final: 'ubstituting the explicit expressions for $A$ and $B$ into the given conditions. Here are the fully expanded results:  --'
   ✅ Run08: The student's answer correctly substitutes A and B into all three bifurcation conditions, matching the reference answer'
-      candidate final: '\\begin{aligned} &\\text{SN: } \\left(c_{\\rho\\rho}c_{\\varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho}\\right) \\cdot \\frac{\\l'
+      candidate final: '3} = 0 $$   **Together with the strict inequality:**   $$ \\left| 2 + c_{\\rho\\rho} \\cdot \\frac{2\\rho^*\\cos(2\\alpha) + (\\r'
       pass@1 = 1.0000
       pass@2 = 1.0000
       pass@4 = 1.0000
@@ -126,26 +126,26 @@ Reference final: '$$\n\\boxed{\n\\begin{aligned}\n&\\text{Define: }\\mathcal{A} 
 ────────────────────────────────────────────────────────────────────────────────
 Question 5
 Reference final: '$$\\boxed{\\dfrac{\\partial L}{\\partial \\bar{r}_{ff}} = -\\dfrac{\\bar{r}_{cf}}{2\\,\\bar{r}_{ff}^{\\,3/2}} < 0 \\quad \\text{for all } \\bar{r}_{cf}>0,\\ \\bar{r}_{ff}\\in(0,1),}$$\nso $L(\\bar{r}_{cf},\\bar{r}_{ff})'
-  ❌ Run01: JSON parse failed, raw="<think>\nOkay, let's tackle this problem. The user wants to know if the student's answer is equi
-      candidate final: '-\\frac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}'
-  ❌ Run02: JSON parse failed, raw="<think>\nOkay, let's tackle this problem. The user wants to know if the student's answer is equi
-      candidate final: '-\\frac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}'
-  ❌ Run03: The student's answer provides only the partial derivative expression but omits the sign and the conclusion about monoton
-      candidate final: '-\\frac{\\bar{r}_{cf}}{2\\,\\bar{r}_{ff}^{3/2}}'
-  ❌ Run04: The student's answer only provides the qualitative interpretation (part c) but does not include the required partial der
-      candidate final: '\\text{Higher inter-feature redundancy reduces the maximum attainable Cfs merit as the subset size grows large.}'
-  ❌ Run05: JSON parse failed, raw="<think>\nOkay, let's tackle this problem. The user wants to know if the student's answer is equi
-      candidate final: '-\\dfrac{\\bar{r}_{cf}}{2 (\\bar{r}_{ff})^{3/2}}'
-  ❌ Run06: The student's answer provides only the partial derivative expression but omits the sign and the conclusion about monoton
-      candidate final: '-\\dfrac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}'
-  ❌ Run07: The student's answer provides only the partial derivative expression but omits the sign and the conclusion about monoton
-      candidate final: '-\\dfrac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}'
-  ❌ Run08: JSON parse failed, raw="<think>\nOkay, let's tackle this problem. The user wants to know if the student's answer is equi
-      candidate final: '-\\frac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}'
-      pass@1 = 0.0000
-      pass@2 = 0.0000
-      pass@4 = 0.0000
-      pass@8 = 0.0000
+  ✅ Run01: The student's final answers for parts (a) and (b) match the reference answer's mathematical conclusions. The partial der
+      candidate final: '**Part (a):**   To compute the partial derivative $\\frac{\\partial L}{\\partial \\bar{r}_{ff}}$, we start with the expressi'
+  ✅ Run02: The student's final answers for all parts are mathematically equivalent to the reference answer. The partial derivative 
+      candidate final: '**Part (a):**   To compute the partial derivative $\\frac{\\partial L}{\\partial \\bar{r}_{ff}}$, we treat $\\bar{r}_{cf}$ as'
+  ✅ Run03: The student's final answer matches the reference answer in all parts: the partial derivative is correctly computed, its 
+      candidate final: '</think>  **(a)** To compute the partial derivative $\\dfrac{\\partial L}{\\partial \\bar{r}_{ff}}$, we start with the expre'
+  ✅ Run04: The student's final answers for (a) and (b) match the reference's mathematical conclusions: the partial derivative is co
+      candidate final: 'nk>  **(a)** To compute the partial derivative $\\dfrac{\\partial L}{\\partial \\bar{r}_{ff}}$, we start with the expression'
+  ✅ Run05: The student's answers for (a), (b), and (c) are mathematically equivalent to the reference. The partial derivative match
+      candidate final: '(a) $\\boxed{-\\dfrac{\\bar{r}_{cf}}{2 (\\bar{r}_{ff})^{3/2}}}$  (b) The partial derivative is negative for all $\\bar{r}_{cf'
+  ✅ Run06: The student's answers for (a), (b), and (c) are mathematically equivalent to the reference answer. (a) matches the deriv
+      candidate final: '(a) $\\boxed{-\\dfrac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}}$  (b) The partial derivative is negative, so $L$ is strictly de'
+  ✅ Run07: The student's answers for (a), (b), and (c) are mathematically equivalent to the reference. (a) matches the derivative e
+      candidate final: '(a) $\\boxed{-\\dfrac{\\bar{r}_{cf}}{2 \\bar{r}_{ff}^{3/2}}}$  (b) The partial derivative is negative, so $L$ is strictly de'
+  ❌ Run08: The student's answer provides only a qualitative interpretation of part (c), while the reference answer includes the exp
+      candidate final: '$$ \\boxed{\\text{Higher inter-feature redundancy reduces the maximum attainable Cfs merit as the subset size grows.}} $$'
+      pass@1 = 1.0000
+      pass@2 = 1.0000
+      pass@4 = 1.0000
+      pass@8 = 1.0000
 
 ────────────────────────────────────────────────────────────────────────────────
 Question 6
@@ -174,44 +174,44 @@ Reference final: '\\boxed{B}'
 ────────────────────────────────────────────────────────────────────────────────
 Question 7
 Reference final: '\\boxed{\n\\begin{aligned}\np(\\lambda) &= \\lambda^2 - \\mathrm{tr}(J)\\,\\lambda + \\det(J), \\\\[4pt]\n\\mathrm{tr}(J) &= 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\\\[4pt]\n\\det(J) &= 1 + c_{\\rho\\rho}A + c_{\\varph'
-  ❌ Run01: The student's answer omits the characteristic polynomial $p(\lambda)$, which is explicitly required in the reference ans
-      candidate final: '\\begin{aligned} \\text{tr}(J) &= 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\\\ \\text{det}(J) &= 1 + c_{\\rho\\rho}A + c_{\\var'
-  ❌ Run02: The student's answer omits the characteristic polynomial equation, which is required by the first part of the question. 
-      candidate final: '\\begin{aligned} \\text{tr}(J) &= 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\\\ \\text{det}(J) &= 1 + c_{\\rho\\rho}A + c_{\\var'
-  ❌ Run03: The student's answer omits the characteristic polynomial equation, which is required as part of the final display. The r
-      candidate final: '\\begin{aligned} &\\mathrm{tr}(J) = 2 + c_{\\rho\\rho} A + c_{\\varphi\\varphi} B, \\\\ &\\det(J) = 1 + c_{\\rho\\rho} A + c_{\\varp'
+  ✅ Run01: The student's final answer matches the reference answer in all components: characteristic polynomial, tr(J), det(J), and
+      candidate final: 'varphi\\varphi} - c_{\\rho\\varphi}c_{\\varphi\\rho})AB] - [2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B] + 1 = 0 $$  Simplifies t'
+  ✅ Run02: The student's answer matches the reference answer in all components: characteristic polynomial, tr(J), det(J), and all t
+      candidate final: 'furcation Boundary Conditions**  We now derive the three bifurcation conditions by evaluating the characteristic polynom'
+  ✅ Run03: The student's answer matches the reference answer in all components: characteristic polynomial, tr(J), det(J), and all t
+      candidate final: 'arphi\\rho}) A B]  - [2 + c_{\\rho\\rho} A + c_{\\varphi\\varphi} B] + 1 = 0 $$  Simplify:  $$ (c_{\\rho\\rho} c_{\\varphi\\varph'
   ❌ Run04: The student's answer for the Neimark–Sacker (NS) bifurcation condition incorrectly states det(J) = 1 instead of det(J) =
       candidate final: '$$ \\begin{aligned} &\\text{tr}(J) = 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\\\ &\\det(J) = 1 + c_{\\rho\\rho}A + c_{\\varphi'
-  ✅ Run05: The student's answer matches the reference answer in all components: characteristic polynomial, trace, determinant, and 
-      candidate final: '\\begin{aligned} &\\text{Characteristic Polynomial: } p(\\lambda) = \\lambda^2 - \\mathrm{tr}(J)\\lambda + \\det(J) \\\\ &\\text{T'
-  ✅ Run06: The student's answer matches the reference answer in all components: characteristic polynomial, trace and determinant ex
-      candidate final: '\\begin{aligned} &\\text{Characteristic Polynomial: } p(\\lambda) = \\lambda^2 - \\mathrm{tr}(J)\\lambda + \\det(J), \\\\ &\\mathr'
-  ❌ Run07: JSON parse failed, raw="<think>\nOkay, let's tackle this problem step by step. The user wants to know if the student's a
-      candidate final: '\\begin{aligned} &\\text{tr}(J) = 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\\\ &\\det(J) = 1 + c_{\\rho\\rho}A + c_{\\varphi\\va'
-  ❌ Run08: The student's answer omits the characteristic polynomial $p(\lambda)$, which is explicitly required in the reference ans
-      candidate final: '\\begin{aligned} &\\text{tr}(J) = 2 + c_{\\rho\\rho}A + c_{\\varphi\\varphi}B, \\quad \\det(J) = 1 + c_{\\rho\\rho}A + c_{\\varphi\\'
+  ✅ Run05: The student's final answer matches the reference answer in all components: characteristic polynomial, trace, determinant
+      candidate final: '- \\mathrm{tr}(J) + 1 = 0 $$ Substituting $ \\mathrm{tr}(J) $ and $ \\det(J) $: $$ \\left[1 + c_{\\rho\\rho}A + c_{\\varphi\\var'
+  ✅ Run06: The student's final answer matches the reference answer in all components: characteristic polynomial, tr(J), det(J), and
+      candidate final: 'hi}B, \\quad J_{21} = c_{\\varphi\\rho}A, \\quad J_{22} = 1 + c_{\\varphi\\varphi}B, $$ we compute: $$ \\mathrm{tr}(J) = J_{11}'
+  ❌ Run07: JSON parse failed, raw="<think>\nOkay, let's tackle this problem step by step. The task is to determine if the student's
+      candidate final: '### 3. **Bifurcation Conditions**  We derive the three bifurcation conditions by evaluating $ p(\\lambda) = 0 $ at the re'
+  ✅ Run08: The student's final answer matches the reference answer in all components: characteristic polynomial, trace and determin
+      candidate final: 'The characteristic polynomial $ p(\\lambda) $ of the Jacobian $ J $ is derived using the trace and determinant of $ J $. '
       pass@1 = 1.0000
       pass@2 = 1.0000
-      pass@4 = 0.7857
+      pass@4 = 1.0000
       pass@8 = 1.0000
 
 ────────────────────────────────────────────────────────────────────────────────
 Question 8
 Reference final: '$$\\boxed{\\operatorname{codim}_{\\mathcal{A}_g}(\\mathcal{J}_g) = \\dfrac{(g-2)(g-3)}{2}}$$\n\nThis is strictly positive for all integers $g \\geq 4$, so $\\mathcal{J}_g \\subsetneq \\mathcal{A}_g$ for $g \\geq '
-  ✅ Run01: The student's answer matches the reference's codimension formula exactly. The additional explanatory text in the referen
-      candidate final: '\\dfrac{(g-2)(g-3)}{2}'
-  ✅ Run02: The student's answer matches the reference's codimension formula exactly. The reference's additional conclusions about p
-      candidate final: '\\frac{(g-2)(g-3)}{2}'
-  ✅ Run03: The student's answer matches the reference's codimension formula exactly. The reference's additional conclusions about p
-      candidate final: '\\frac{(g-2)(g-3)}{2}'
+  ✅ Run01: The student's final answer matches the reference's codimension formula exactly. Both correctly state the codimension is 
+      candidate final: 'l{J}_g$ is defined as the closure of the image of the Torelli map from the moduli space of smooth projective curves $\\ma'
+  ✅ Run02: The student's final answer matches the reference formula for codimension and correctly concludes that Hodge-generic abel
+      candidate final: 'The Torelli locus $\\mathcal{J}_g$ is a proper closed subvariety of $\\mathcal{A}_g$ if and only if its codimension is str'
+  ✅ Run03: The student's final answer matches the reference's boxed expression for codimension and correctly concludes that for $ g
+      candidate final: 'in $\\mathcal{A}_g$ is given by:   $$   \\operatorname{codim}_{\\mathcal{A}_g}(\\mathcal{J}_g) = \\frac{(g-2)(g-3)}{2}   $$ -'
   ✅ Run04: The student's final answer matches the reference's codimension formula and correctly concludes that for g ≥ 4, Hodge-gen
       candidate final: 'The codimension of the Torelli locus $\\mathcal{J}_g$ in $\\mathcal{A}_g$ is given by $\\frac{(g-2)(g-3)}{2}$. For $g \\geq '
   ✅ Run05: The student's final answer matches the reference answer's codimension formula and correctly concludes that Hodge-generic
       candidate final: '$$ \\operatorname{codim}_{\\mathcal{A}_g}(\\mathcal{J}_g) = \\frac{(g-2)(g-3)}{2} $$ For $g \\geq 4$, a Hodge-generic abelian'
   ✅ Run06: The student's answer correctly states the codimension formula and the conclusion about Hodge-genericity for g ≥ 4, match
       candidate final: 'The codimension of $\\mathcal{J}_g$ in $\\mathcal{A}_g$ is $\\frac{(g-2)(g-3)}{2}$, and for $g \\geq 4$, no Hodge-generic ab'
-  ✅ Run07: The student's answer matches the reference's codimension formula exactly. The reference's additional conclusions about p
-      candidate final: '\\frac{(g-2)(g-3)}{2}'
+  ❌ Run07: The student's answer incorrectly concludes that Hodge-generic points can lie in J_g for g ≥ 4, whereas the reference ans
+      candidate final: 'The codimension of $\\mathcal{J}_g$ in $\\mathcal{A}_g$ is $\\frac{(g-2)(g-3)}{2}$. For $g \\geq 4$, since $\\mathcal{J}_g$ i'
   ✅ Run08: The student's answer matches the reference's codimension formula exactly. The additional explanatory text in the referen
       candidate final: '(g-2)(g-3)/2'
       pass@1 = 1.0000
@@ -222,27 +222,27 @@ Reference final: '$$\\boxed{\\operatorname{codim}_{\\mathcal{A}_g}(\\mathcal{J}_
 ────────────────────────────────────────────────────────────────────────────────
 Question 9
 Reference final: '\\boxed{A_t = (-1)^c\\cdot\\mathbf{1}[t=0^n],\\qquad \\text{simplified state} = (-1)^c\\,|0^n\\rangle\\otimes H|1\\rangle,\\qquad P(t=0^n)=1}'
-  ✅ Run01: The student's answer matches the reference answer in all three components: A_t, the simplified state, and the probabilit
-      candidate final: '\\begin{aligned} &\\text{(1) } A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ &\\text{(2) } \\text{Post-measurement state: } (-1'
-  ✅ Run02: The student's answer matches the reference answer in all components: A_t is correctly expressed as (-1)^c·1[t=0^n], the 
-      candidate final: 'A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\quad \\text{post-measurement state} = (-1)^c |0^n\\rangle\\otimes H|1\\rangle, \\qua'
-  ✅ Run03: The student's answer exactly matches the reference answer in all three components: A_t, the simplified state, and the pr
-      candidate final: '**  $$ \\begin{aligned} &\\text{(1) } A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ &\\text{(2) } \\text{Post-measurement state'
-  ✅ Run04: The student's answer matches the reference answer in all three components: A_t, the simplified state, and the probabilit
-      candidate final: '\\begin{aligned} &\\text{(1) } A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ &\\text{(2) } \\text{Post-measurement state: } (-1'
-  ✅ Run05: The student's answer matches the reference answer in all components: A_t is correctly expressed as (-1)^c * 1[t=0^n], th
-      candidate final: '\\begin{aligned} A_t &= (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ \\text{Post-measurement state} &= (-1)^c |0^n\\rangle \\otimes '
-  ✅ Run06: The student's answer exactly matches the reference answer in all three components: A_t, the simplified state, and the pr
-      candidate final: '\\begin{aligned} &\\text{(1) } A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ &\\text{(2) } \\text{Post-measurement state: } (-1'
-  ✅ Run07: The student's answer matches the reference answer in all components: A_t is correctly expressed with the indicator funct
-      candidate final: '\\begin{aligned} A_t &= (-1)^c \\cdot \\mathbf{1}[t=0^n], \\\\ \\text{Post-measurement state} &= (-1)^c |0^n\\rangle \\otimes H|'
-  ✅ Run08: The student's answer exactly matches the reference answer in all three components: (1) A_t is correctly expressed as (-1
-      candidate final: '\\begin{aligned} (1)\\ & A_t = (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ (2)\\ & \\text{Post-measurement state: } (-1)^c |0^n\\ran'
+  ✅ Run01: The student's answer matches the reference answer exactly in all three components: (1) A_t = (-1)^c * 1[t=0^n], (2) simp
+      candidate final: '</think>  **Part (a):**   The amplitude $ A_t $ of the basis state $ |t\\rangle \\otimes H|1\\rangle $ is obtained by regro'
+  ✅ Run02: The student's final answer exactly matches the reference answer in all components: the amplitude $ A_t $, the simplified
+      candidate final: '</think>  </think>  **Part (a)**   To regroup the double sum with $ t $ as the outer index, we observe that the original'
+  ✅ Run03: The student's final answer exactly matches the reference answer in all components: the amplitude $ A_t $, the simplified
+      candidate final: '</think>  </think>  **Problem (a):**   We are given the state after applying $ H^{\\otimes n} \\otimes I $ to the post-ora'
+  ✅ Run04: The student's final answer matches the reference answer exactly. All three components (A_t, simplified state, and probab
+      candidate final: 'litude $ A_t $ of the basis state $ |t\\rangle \\otimes H|1\\rangle $ is obtained by regrouping the double sum with $ t $ a'
+  ✅ Run05: The student's answer matches the reference answer in all components: A_t is correctly expressed as (-1)^c * indicator fu
+      candidate final: '$$ \\boxed{ \\begin{aligned} A_t &= (-1)^c \\cdot \\mathbf{1}[t = 0^n], \\\\ \\text{Post-measurement state} &= (-1)^c |0^n\\rang'
+  ✅ Run06: The student's final answer matches the reference answer exactly. All three components (A_t, simplified state, and P(t=0^
+      candidate final: 'post-oracle state: $$ \\frac{1}{2^n}\\sum_{x\\in\\{0,1\\}^n}\\sum_{t\\in\\{0,1\\}^n}(-1)^{f(x)+x\\cdot t}\\,|t\\rangle\\otimes H|1\\ra'
+  ✅ Run07: The student's answer exactly matches the reference answer in all three components: the amplitude $ A_t $, the simplified
+      candidate final: '</think>  </think>  **Part (a):**  The original expression is: $$ \\frac{1}{2^n}\\sum_{x\\in\\{0,1\\}^n}\\sum_{t\\in\\{0,1\\}^n}('
+  ✅ Run08: The student's answer exactly matches the reference answer in all three components: the amplitude $ A_t $, the simplified
+      candidate final: '</think>  </think>  **Problem (a):**   We are given the state after applying $ H^{\\otimes n} \\otimes I $ to the post-ora'
       pass@1 = 1.0000
       pass@2 = 1.0000
       pass@4 = 1.0000
       pass@8 = 1.0000
 
 ================================================================================
-Overall: 47/80 correct (58.8%)
+Overall: 58/80 correct (72.5%)
 ================================================================================

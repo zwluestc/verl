@@ -4,7 +4,7 @@
 
 核心设计：
 1. 从 <final>...</final> 标签中提取最终答案，大幅减少 judge prompt 长度
-2. 如果 <final> 缺失，则回退到提取 \boxed{...} 或最后 500 字符
+2. 如果 <final> 缺失，则回退到 response/answer 去掉 <think> 后的最后 2000 字符
 3. 多层 JSON 解析 fallback，防止因模型格式错误导致的误判
 
 多卡并行说明：
@@ -172,7 +172,10 @@ def _extract_answer_section(text: str) -> str:
 def extract_final_answer(text: str) -> str:
     """
     从 <final>...</final> 中提取最终答案。
-    如果没有 <final> 标签，则回退到提取最后一个完整的 \boxed{...} 或结论区域。
+    如果没有 <final> 标签，则回退到去掉 <think> 后的最后 2000 字符。
+
+    注意：这里刻意不再优先提取最后一个 \boxed{...}。多小问答案常常有多个
+    boxed 公式，最后一个 boxed 可能只是局部结论，会让 judge 误以为学生漏答。
     """
     if not text:
         return ""
@@ -184,17 +187,7 @@ def extract_final_answer(text: str) -> str:
 
     text_no_think = _strip_think(text)
 
-    # 策略 2: 提取最后一个完整 \boxed{...}，支持嵌套 \frac / aligned / cases。
-    boxed = _extract_balanced_command_arg(text_no_think, r"\boxed")
-    if boxed and not _is_placeholder_answer(boxed):
-        return boxed
-
-    # 策略 3: 尝试从 Final Answer / Answer / 因此 等结论区域截取。
-    answer_section = _extract_answer_section(text_no_think)
-    if answer_section:
-        return answer_section
-
-    # 策略 4: 回退到文本最后 2000 字符（通常是结论区域，保留更多上下文）。
+    # 策略 2: 回退到文本最后 2000 字符（通常包含完整结论区域）。
     return text_no_think[-2000:].strip()
 
 
@@ -202,15 +195,15 @@ def choose_candidate_text(record: dict, run_idx: int) -> str:
     """
     选择用于判断的候选文本。
 
-    优先使用 answerX 中已经抽好的最终答案，但如果它为空、占位符或明显残缺，
-    就回退到完整 responseX 重新抽取，避免 "..." 或旧抽取残片污染 judge。
+    默认使用完整 responseX。answerX 往往是预抽取结果，可能只保留了某个
+    boxed 局部公式；只有 responseX 缺失时才 fallback 到 answerX。
     """
     answer = record.get(f"answer{run_idx}", "")
     response = record.get(f"response{run_idx}", "")
 
-    if answer and not _looks_truncated_answer(answer):
-        return answer
-    return response
+    if response and not _is_placeholder_answer(response):
+        return response
+    return answer
 
 
 def read_jsonl_records(path: Path) -> list:
