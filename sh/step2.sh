@@ -5,7 +5,7 @@ set -euo pipefail
 # Adjust PYTHON_BIN if you need to use a virtualenv's python.
 PYTHON_BIN=${PYTHON_BIN:-python}
 MODEL_PATH=/mnt/data/zwl/models/Qwen3-8B
-INPUT_FILE=/mnt/data/zwl/verl/data/mixed_10.jsonl
+INPUT_FILE=/mnt/data/zwl/verl/data/mixed.jsonl
 OUTPUT_DIR=/mnt/data/zwl/verl/output
 REPEATS=8
 WORKERS=8

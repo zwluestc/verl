@@ -15,7 +15,7 @@
 #     - max_new_tokens 默认 12800（给模型充分的思考空间）
 #
 # 模型路径：/mnt/data/zwl/models/Qwen3-8B
-# 输入文件：../output/merged.jsonl
+# 输入文件：../output/merged1.jsonl
 # 输出文件：../output/qwen3_judge_results.jsonl
 # 摘要文件：../output/qwen3_judge_summary.txt
 # =============================================================================
