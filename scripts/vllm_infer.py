@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -70,6 +71,18 @@ def main() -> None:
     p.add_argument("--mod", required=True, type=int, help="Number of partitions (e.g., 8)")
     p.add_argument("--repeats", type=int, default=8, help="Number of independent generations per record")
     p.add_argument("--max-tokens", type=int, default=2048, help="Max tokens for generation")
+    p.add_argument(
+        "--max-model-len",
+        type=int,
+        default=int(os.environ.get("VLLM_MAX_MODEL_LEN", "32768")),
+        help="Max model context length for vLLM initialization",
+    )
+    p.add_argument(
+        "--gpu-memory-utilization",
+        type=float,
+        default=float(os.environ.get("VLLM_GPU_MEMORY_UTILIZATION", "0.85")),
+        help="GPU memory utilization passed to vLLM",
+    )
     p.add_argument("--temperature", type=float, default=0.7, help="Sampling temperature")
     p.add_argument("--top-p", type=float, default=0.9, help="Sampling top-p")
     args = p.parse_args()
@@ -93,8 +106,8 @@ def main() -> None:
             model=model_path,
             trust_remote_code=True,
             tensor_parallel_size=1,
-            device="cuda",
-            gpu_memory_utilization=0.85,
+            max_model_len=args.max_model_len,
+            gpu_memory_utilization=args.gpu_memory_utilization,
             enforce_eager=True,
         )
     except Exception as e:
