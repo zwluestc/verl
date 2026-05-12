@@ -10,7 +10,7 @@ WORKSPACE_DIR="/mnt/data/zwl/verl"
 
 # 设定需要处理的 JSONL 数据文件路径
 # 请根据实际要处理的文件修改此处
-INPUT_FILE="${WORKSPACE_DIR}/data/mixed.jsonl"
+INPUT_FILE="${WORKSPACE_DIR}/data/mixed_1000.jsonl"
 
 # Python 解释器路径 (根据虚拟环境或全局环境修改)
 PYTHON_BIN="python"
