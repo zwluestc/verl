@@ -36,38 +36,213 @@ import os
 import sys
 from pathlib import Path
 
-import torch
-import torch.multiprocessing as mp
+import multiprocessing as mp
 
 # ========================== 提取逻辑 ==========================
+
+
+_PLACEHOLDER_ANSWERS = {"", "...", "…", "N/A", "n/a", "None", "none", "null", "NULL"}
+
+
+def _strip_think(text: str) -> str:
+    """去掉模型思考区，保留最终可见回答。"""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
+
+
+def _is_placeholder_answer(text: str) -> bool:
+    normalized = text.strip()
+    return normalized in _PLACEHOLDER_ANSWERS
+
+
+def _has_balanced_braces(text: str) -> bool:
+    """粗略检查 LaTeX 花括号是否平衡。忽略转义花括号。"""
+    depth = 0
+    escaped = False
+    for ch in text:
+        if escaped:
+            escaped = False
+            continue
+        if ch == "\\":
+            escaped = True
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
+def _looks_truncated_answer(text: str) -> bool:
+    """识别常见的抽取残片，避免把残缺片段送给 judge。"""
+    s = text.strip()
+    if _is_placeholder_answer(s):
+        return True
+    if not s:
+        return True
+    if not _has_balanced_braces(s):
+        return True
+    suspicious_suffixes = (
+        r"\frac",
+        r"\frac{",
+        r"\sqrt",
+        r"\sqrt{",
+        r"\begin{aligned",
+        r"\begin{cases",
+        r"\left",
+        r"\boxed{",
+    )
+    if any(s.endswith(suffix) for suffix in suspicious_suffixes):
+        return True
+    if r"\begin{aligned" in s and r"\end{aligned" not in s:
+        return True
+    if r"\begin{cases" in s and r"\end{cases" not in s:
+        return True
+    return False
+
+
+def _extract_balanced_command_arg(text: str, command: str) -> str:
+    """
+    提取最后一个 command{...} 的完整参数，支持嵌套花括号。
+
+    正则 r"\\boxed\\{(.*?)\\}" 会把 \boxed{\frac{a}{b}} 截成
+    \frac{a，因此这里改成显式括号配平。
+    """
+    needle = command + "{"
+    start = text.rfind(needle)
+    if start == -1:
+        return ""
+
+    i = start + len(needle)
+    depth = 1
+    out = []
+    escaped = False
+    while i < len(text):
+        ch = text[i]
+        if escaped:
+            out.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escaped = True
+            i += 1
+            continue
+        if ch == "{":
+            depth += 1
+            out.append(ch)
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return "".join(out).strip()
+            out.append(ch)
+        else:
+            out.append(ch)
+        i += 1
+
+    return ""
+
+
+def _extract_last_final_tag(text: str) -> str:
+    matches = list(re.finditer(r"<final>(.*?)</final>", text, re.DOTALL | re.IGNORECASE))
+    for match in reversed(matches):
+        candidate = match.group(1).strip()
+        if not _is_placeholder_answer(candidate):
+            return candidate
+    return ""
+
+
+def _extract_answer_section(text: str) -> str:
+    """没有标签/boxed 时，尝试从常见结论标题后截取一小段。"""
+    patterns = [
+        r"(?:Final Answer|Final answer|Answer|答案|最终答案)\s*[:：]\s*(.+)$",
+        r"(?:Therefore|Thus|So|Hence)\s*,?\s*(.+)$",
+    ]
+    for pattern in patterns:
+        matches = list(re.finditer(pattern, text, re.DOTALL))
+        for match in reversed(matches):
+            candidate = match.group(1).strip()
+            if candidate and not _is_placeholder_answer(candidate):
+                return candidate[-2000:].strip()
+    return ""
 
 
 def extract_final_answer(text: str) -> str:
     """
     从 <final>...</final> 中提取最终答案。
-    如果没有 <final> 标签，则回退到提取 \boxed{...} 或最后 500 字符。
+    如果没有 <final> 标签，则回退到提取最后一个完整的 \boxed{...} 或结论区域。
     """
     if not text:
         return ""
 
-    # 策略 1: 提取 <final>...</final>（支持多行，非贪婪匹配）
-    pattern_final = re.compile(r"<final>(.*?)</final>", re.DOTALL | re.IGNORECASE)
-    match = pattern_final.search(text)
-    if match:
-        return match.group(1).strip()
+    # 策略 1: 优先提取最后一个非占位 <final>...</final>。
+    final_tag = _extract_last_final_tag(text)
+    if final_tag:
+        return final_tag
 
-    # 策略 2: 提取 \boxed{...}（常见于数学题）
-    pattern_boxed = re.compile(r"\\boxed\{(.*?)\}", re.DOTALL)
-    match = pattern_boxed.search(text)
-    if match:
-        return match.group(1).strip()
+    text_no_think = _strip_think(text)
 
-    # 策略 3: 回退到文本最后 2000 字符（通常是结论区域，保留更多上下文）
-    # 先去掉 <think>...</think> 减少噪音
-    text_no_think = re.sub(
-        r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE
-    ).strip()
+    # 策略 2: 提取最后一个完整 \boxed{...}，支持嵌套 \frac / aligned / cases。
+    boxed = _extract_balanced_command_arg(text_no_think, r"\boxed")
+    if boxed and not _is_placeholder_answer(boxed):
+        return boxed
+
+    # 策略 3: 尝试从 Final Answer / Answer / 因此 等结论区域截取。
+    answer_section = _extract_answer_section(text_no_think)
+    if answer_section:
+        return answer_section
+
+    # 策略 4: 回退到文本最后 2000 字符（通常是结论区域，保留更多上下文）。
     return text_no_think[-2000:].strip()
+
+
+def choose_candidate_text(record: dict, run_idx: int) -> str:
+    """
+    选择用于判断的候选文本。
+
+    优先使用 answerX 中已经抽好的最终答案，但如果它为空、占位符或明显残缺，
+    就回退到完整 responseX 重新抽取，避免 "..." 或旧抽取残片污染 judge。
+    """
+    answer = record.get(f"answer{run_idx}", "")
+    response = record.get(f"response{run_idx}", "")
+
+    if answer and not _looks_truncated_answer(answer):
+        return answer
+    return response
+
+
+def read_jsonl_records(path: Path) -> list:
+    """
+    读取 JSONL。兼容少量“一个 JSON 对象被意外拆成多行”的情况。
+    """
+    records = []
+    buffer = ""
+    start_line = 1
+    with open(path, "r", encoding="utf-8") as f:
+        for line_no, line in enumerate(f, 1):
+            if not buffer:
+                start_line = line_no
+            buffer += line
+            stripped = buffer.strip()
+            if not stripped:
+                buffer = ""
+                continue
+            try:
+                records.append(json.loads(stripped))
+                buffer = ""
+            except json.JSONDecodeError:
+                # 可能是一个 JSON 对象跨行，继续累积。
+                continue
+
+    if buffer.strip():
+        raise ValueError(
+            f"Failed to parse JSON object starting at line {start_line}: "
+            f"{buffer[:200]!r}"
+        )
+
+    return records
 
 
 # ========================== Judge Prompt ==========================
@@ -91,9 +266,13 @@ def build_judge_prompt(question: str, reference: str, candidate: str) -> str:
     """
     # 提取 ground truth 的最终答案
     ref_final = extract_final_answer(reference)
+    if _looks_truncated_answer(ref_final):
+        ref_final = _strip_think(reference)[-2000:].strip()
 
     # 提取候选答案的最终答案
     cand_final = extract_final_answer(candidate)
+    if _looks_truncated_answer(cand_final):
+        cand_final = _strip_think(candidate)[-2000:].strip()
 
     prompt = f"""[Question]
 {question}
@@ -170,6 +349,7 @@ def _parse_judgment(raw_text: str) -> dict:
 def load_model_single_gpu(model_path: str, gpu_id: int):
     """在指定 GPU 上加载模型。"""
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+    import torch
 
     torch.cuda.set_device(gpu_id)
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
@@ -199,6 +379,8 @@ def load_model_single_gpu(model_path: str, gpu_id: int):
 
 
 def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int) -> dict:
+    import torch
+
     messages = [
         {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -248,6 +430,8 @@ def worker_fn(gpu_id, task_list, model_path, max_new_tokens, result_queue):
         result_queue.put((q_idx, r_idx, result))
 
     del model
+    import torch
+
     torch.cuda.empty_cache()
     print(f"[Worker GPU {gpu_id}] Done.")
 
@@ -319,13 +503,8 @@ def main():
         print(f"Error: input not found: {in_path}", file=sys.stderr)
         sys.exit(1)
 
-    # 读取数据
-    records = []
-    with open(in_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
+    # 读取数据。兼容少量 JSON 对象被意外拆成多行的 merged.jsonl。
+    records = read_jsonl_records(in_path)
 
     num_q = min(args.num_questions, len(records))
     total_calls = num_q * 8
@@ -342,7 +521,7 @@ def main():
         question = rec.get("input", "")
         reference = rec.get("output", "")  # 完整参考答案，build_judge_prompt 内部会提取 <final>
         for r_idx in range(1, 9):
-            candidate = rec.get(f"response{r_idx}", "")  # 完整候选推理
+            candidate = choose_candidate_text(rec, r_idx)
             prompt = build_judge_prompt(question, reference, candidate)
             all_tasks.append((q_idx, r_idx, prompt))
 
@@ -394,7 +573,7 @@ def main():
     for q_idx in range(num_q):
         rec = records[q_idx]
         ref_preview = extract_final_answer(rec.get("output", ""))[:200]
-        cand_preview = extract_final_answer(rec.get("response1", ""))[:100]
+        cand_preview = extract_final_answer(choose_candidate_text(rec, 1))[:100]
 
         q_result = {
             "index": q_idx,
@@ -420,7 +599,7 @@ def main():
             total_judged += 1
 
             # 候选预览：提取 final 后的前 120 字符
-            candidate_full = rec.get(f"response{r_idx}", "")
+            candidate_full = choose_candidate_text(rec, r_idx)
             cand_snippet = extract_final_answer(candidate_full)[:120].replace("\n", " ")
 
             q_result["judgments"].append(
