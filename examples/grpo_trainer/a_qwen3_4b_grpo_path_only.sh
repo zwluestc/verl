@@ -10,7 +10,7 @@ PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 
 #1）输入
 
-BASE_SEARCH_PATH="/mnt/oss/zwl/checkpoints/qwen3_4b_sft_path_only"
+BASE_SEARCH_PATH="/mnt/data/zwl/models/Qwen3-4B-Base"
 
 # 自动寻找序号最大的 global_step 文件夹
 # ls -d 匹配目录, sort -V 按数字版本排序 (100会排在99后面), tail -n 1 取最后一个
@@ -40,7 +40,7 @@ mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${TENSORBOARD_DIR}"
 
 #reward model
-REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_em_reward.py}
+REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
 
 # ==========================================
 # 2. 多卡硬件配置

@@ -43,7 +43,11 @@ mkdir -p "${TENSORBOARD_DIR}"
 
 
 #reward model
+<<<<<<< Updated upstream
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_reward_api.py}
+=======
+REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
+>>>>>>> Stashed changes
 
 # ==========================================
 # 2. 多卡硬件配置

@@ -2,8 +2,10 @@
 """
 使用本地部署的 Qwen3-8B 模型（多卡并行）判断推理正确性并计算 pass@k。
 
-核心设计：不做任何答案提取，直接将【题目 + 完整参考答案(output) + 完整候选推理(response)】
-送给本地 Qwen3-8B，让模型自己判断候选的推理过程和最终结论是否与参考等价。
+核心设计：
+1. 从 <final>...</final> 标签中提取最终答案，大幅减少 judge prompt 长度
+2. 如果 <final> 缺失，则回退到提取 \boxed{...} 或最后 500 字符
+3. 多层 JSON 解析 fallback，防止因模型格式错误导致的误判
 
 多卡并行说明：
     脚本会将 80 次判断任务（10 题 x 8 次）均匀分配到 N 张 GPU 上，
@@ -37,40 +39,129 @@ from pathlib import Path
 import torch
 import torch.multiprocessing as mp
 
+# ========================== 提取逻辑 ==========================
+
+
+def extract_final_answer(text: str) -> str:
+    """
+    从 <final>...</final> 中提取最终答案。
+    如果没有 <final> 标签，则回退到提取 \boxed{...} 或最后 500 字符。
+    """
+    if not text:
+        return ""
+
+    # 策略 1: 提取 <final>...</final>（支持多行，非贪婪匹配）
+    pattern_final = re.compile(r"<final>(.*?)</final>", re.DOTALL | re.IGNORECASE)
+    match = pattern_final.search(text)
+    if match:
+        return match.group(1).strip()
+
+    # 策略 2: 提取 \boxed{...}（常见于数学题）
+    pattern_boxed = re.compile(r"\\boxed\{(.*?)\}", re.DOTALL)
+    match = pattern_boxed.search(text)
+    if match:
+        return match.group(1).strip()
+
+    # 策略 3: 回退到文本最后 2000 字符（通常是结论区域，保留更多上下文）
+    # 先去掉 <think>...</think> 减少噪音
+    text_no_think = re.sub(
+        r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE
+    ).strip()
+    return text_no_think[-2000:].strip()
+
+
 # ========================== Judge Prompt ==========================
 
 JUDGE_SYSTEM_PROMPT = """You are a strict but fair mathematics and physics professor.
-Your task is to judge whether a student's reasoning and final answer are mathematically equivalent to the reference answer.
+Your task is to judge whether a student's final answer is mathematically equivalent to the reference final answer.
 
 Rules:
-1. The reference contains a full derivation and a final answer. The final answer is the ground truth.
-2. The candidate also contains a full derivation and a final answer.
-3. Judge whether the candidate's FINAL CONCLUSION is correct and equivalent to the reference's final conclusion.
-4. The student may use different notations, different derivation paths, or present steps in different order; these are acceptable if mathematically equivalent.
-5. If the candidate is partially correct but misses critical terms, has wrong signs, wrong constants, or reaches an incorrect final formula, mark as WRONG.
-6. If the candidate gives no recognizable final answer, or the derivation is completely off-track, mark as WRONG.
-7. Output MUST be valid JSON: {"correct": true/false, "reason": "brief explanation"}
-8. Do NOT output thinking tags like <think>. Output JSON directly.
+1. Compare ONLY the final mathematical conclusions, not the derivation paths.
+2. Different notations, equivalent formulas, or different order of terms are acceptable if mathematically equivalent.
+3. If the final answer is partially correct but misses critical terms, has wrong signs, or wrong constants, mark as WRONG.
+4. If no recognizable final answer is given, mark as WRONG.
+5. Output MUST be valid JSON on a single line: {"correct": true/false, "reason": "brief explanation"}
+6. Do NOT output thinking tags. Do NOT output markdown code blocks. Output JSON directly.
 """
 
 
 def build_judge_prompt(question: str, reference: str, candidate: str) -> str:
     """
-    构造判断 prompt。不做任何提取、不做任何截断，直接使用完整原文。
+    构造判断 prompt。使用提取后的最终答案，而非完整原文。
     """
+    # 提取 ground truth 的最终答案
+    ref_final = extract_final_answer(reference)
+
+    # 提取候选答案的最终答案
+    cand_final = extract_final_answer(candidate)
+
     prompt = f"""[Question]
 {question}
 
-[Reference Answer]
-{reference}
+[Reference Answer (Final)]
+{ref_final}
 
-[Student Answer]
-{candidate}
+[Student Answer (Final)]
+{cand_final}
 
 Judge: Does the Student Answer reach a conclusion equivalent to the Reference Answer?
 Think step by step, then respond with JSON only: {{"correct": true/false, "reason": "..."}}
 """
     return prompt
+
+
+# ========================== 多层 JSON 解析 ==========================
+
+
+def _parse_judgment(raw_text: str) -> dict:
+    """多层 fallback 解析，确保拿到 correct 字段。"""
+    cleaned = raw_text.strip()
+
+    # 第 1 层：去掉 <think> 标签及其内容
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
+
+    # 第 2 层：去掉 markdown code block
+    cleaned = re.sub(r"^```json\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"^```\s*", "", cleaned)
+    cleaned = re.sub(r"```$", "", cleaned)
+    cleaned = cleaned.strip()
+
+    # 第 3 层：尝试完整 JSON 解析
+    try:
+        # 有时 JSON 前面有额外文本，找第一个 { 和最后一个 }
+        if cleaned and cleaned[0] != "{":
+            start = cleaned.find("{")
+            end = cleaned.rfind("}")
+            if start != -1 and end != -1:
+                cleaned = cleaned[start : end + 1]
+        result = json.loads(cleaned)
+        if "correct" in result:
+            return result
+    except Exception:
+        pass
+
+    # 第 4 层：正则提取 "correct": true/false（不依赖完整 JSON）
+    correct_match = re.search(
+        r'"correct"\s*:\s*(true|false)', cleaned, re.IGNORECASE
+    )
+    if correct_match:
+        is_correct = correct_match.group(1).lower() == "true"
+        # 尝试提取 reason
+        reason_match = re.search(r'"reason"\s*:\s*"([^"]*)"', cleaned)
+        reason = reason_match.group(1) if reason_match else "extracted by regex"
+        return {"correct": is_correct, "reason": reason}
+
+    # 第 5 层：如果模型输出 "true" 或 "false" 单词
+    if re.search(r"\btrue\b", cleaned, re.IGNORECASE):
+        return {"correct": True, "reason": "keyword true detected"}
+    if re.search(r"\bfalse\b", cleaned, re.IGNORECASE):
+        return {"correct": False, "reason": "keyword false detected"}
+
+    # 最终 fallback
+    return {
+        "correct": False,
+        "reason": f"JSON parse failed, raw={raw_text[:200]!r}",
+    }
 
 
 # ========================== 单卡模型加载与推理 ==========================
@@ -129,47 +220,15 @@ def generate_judgment(model, tokenizer, prompt: str, max_new_tokens: int) -> dic
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=False,
-            pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id else tokenizer.eos_token_id,
+            pad_token_id=tokenizer.pad_token_id
+            if tokenizer.pad_token_id
+            else tokenizer.eos_token_id,
         )
 
     generated_ids = outputs[0][inputs.input_ids.shape[1] :]
     raw_text = tokenizer.decode(generated_ids, skip_special_tokens=True)
 
-    try:
-        cleaned = raw_text.strip()
-
-        # 1. 去掉 <think>...</think> 及其内容
-        cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL)
-        cleaned = cleaned.strip()
-
-        # 2. 去掉 markdown code block
-        if cleaned.startswith("```json"):
-            cleaned = cleaned[7:]
-        if cleaned.startswith("```"):
-            cleaned = cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
-
-        # 3. 有时候 JSON 前面有额外文本，尝试找第一个 { 和最后一个 }
-        if cleaned and cleaned[0] != "{":
-            start = cleaned.find("{")
-            if start != -1:
-                end = cleaned.rfind("}")
-                if end != -1:
-                    cleaned = cleaned[start:end+1]
-
-        result = json.loads(cleaned)
-        if "correct" not in result:
-            result["correct"] = False
-        if "reason" not in result:
-            result["reason"] = "missing reason"
-        return result
-    except Exception as e:
-        return {
-            "correct": False,
-            "reason": f"JSON parse error: {e}, raw={raw_text[:300]!r}",
-        }
+    return _parse_judgment(raw_text)
 
 
 # ========================== 多卡 Worker ==========================
@@ -206,6 +265,7 @@ def compute_pass_at_k(correct_flags: list, k: int) -> float:
     if c >= k:
         return 1.0
     from math import comb
+
     return 1.0 - comb(n - c, k) / comb(n, k)
 
 
@@ -213,14 +273,45 @@ def compute_pass_at_k(correct_flags: list, k: int) -> float:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Judge reasoning correctness using local Qwen3-8B (multi-GPU)")
-    parser.add_argument("--model_path", default="/mnt/data/zwl/models/Qwen3-8B", help="Path to local Qwen3-8B model")
-    parser.add_argument("--input", "-i", default="merged.jsonl", help="Path to merged.jsonl")
-    parser.add_argument("--output", "-o", default="qwen3_judge_results.jsonl", help="Output JSONL path")
-    parser.add_argument("--summary", "-s", default="qwen3_judge_summary.txt", help="Summary text path")
-    parser.add_argument("--num_questions", "-n", type=int, default=10, help="How many questions to judge (default 10 = all)")
-    parser.add_argument("--max_new_tokens", type=int, default=12800, help="Max tokens for judgment generation (default 12800)")
-    parser.add_argument("--num_gpus", "-g", type=int, default=8, help="Number of GPUs to use (default 8)")
+    parser = argparse.ArgumentParser(
+        description="Judge reasoning correctness using local Qwen3-8B (multi-GPU)"
+    )
+    parser.add_argument(
+        "--model_path",
+        default="/mnt/data/zwl/models/Qwen3-8B",
+        help="Path to local Qwen3-8B model",
+    )
+    parser.add_argument(
+        "--input", "-i", default="merged.jsonl", help="Path to merged.jsonl"
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        default="qwen3_judge_results.jsonl",
+        help="Output JSONL path",
+    )
+    parser.add_argument(
+        "--summary",
+        "-s",
+        default="qwen3_judge_summary.txt",
+        help="Summary text path",
+    )
+    parser.add_argument(
+        "--num_questions",
+        "-n",
+        type=int,
+        default=10,
+        help="How many questions to judge (default 10 = all)",
+    )
+    parser.add_argument(
+        "--max_new_tokens",
+        type=int,
+        default=12800,
+        help="Max tokens for judgment generation (default 12800)",
+    )
+    parser.add_argument(
+        "--num_gpus", "-g", type=int, default=8, help="Number of GPUs to use (default 8)"
+    )
     args = parser.parse_args()
 
     in_path = Path(args.input)
@@ -241,15 +332,15 @@ def main():
     print(f"Loaded {len(records)} questions")
     print(f"Will judge {num_q} questions x 8 runs = {total_calls} calls")
     print(f"Using {args.num_gpus} GPUs, max_new_tokens={args.max_new_tokens}")
-    print("NOTE: No answer extraction -- sending FULL response text to judge model.")
+    print("MODE: Extract <final> answers to reduce prompt length.")
     print("")
 
-    # 构建所有任务：直接使用完整 output 和 response，不做任何提取
+    # 构建所有任务：提取 final 答案后再构造 prompt
     all_tasks = []
     for q_idx in range(num_q):
         rec = records[q_idx]
         question = rec.get("input", "")
-        reference = rec.get("output", "")        # 完整参考答案
+        reference = rec.get("output", "")  # 完整参考答案，build_judge_prompt 内部会提取 <final>
         for r_idx in range(1, 9):
             candidate = rec.get(f"response{r_idx}", "")  # 完整候选推理
             prompt = build_judge_prompt(question, reference, candidate)
@@ -293,17 +384,17 @@ def main():
     all_results = []
     summary_lines = []
     summary_lines.append("=" * 80)
-    summary_lines.append("Local Qwen3-8B Multi-GPU Judge Report")
+    summary_lines.append("Local Qwen3-8B Multi-GPU Judge Report (with <final> extraction)")
     summary_lines.append("=" * 80)
-    summary_lines.append("Mode: FULL response comparison (no answer extraction)")
+    summary_lines.append("Mode: Extract <final> answers before judging")
 
     total_correct = 0
     total_judged = 0
 
     for q_idx in range(num_q):
         rec = records[q_idx]
-        ref_preview = rec.get("output", "")[:200]   # 仅用于展示
-        cand_preview = rec.get("response1", "")[:100]  # 仅用于展示
+        ref_preview = extract_final_answer(rec.get("output", ""))[:200]
+        cand_preview = extract_final_answer(rec.get("response1", ""))[:100]
 
         q_result = {
             "index": q_idx,
@@ -316,7 +407,7 @@ def main():
 
         summary_lines.append(f"\n{'─' * 80}")
         summary_lines.append(f"Question {q_idx}")
-        summary_lines.append(f"Reference preview: {ref_preview!r}")
+        summary_lines.append(f"Reference final: {ref_preview!r}")
 
         for r_idx in range(1, 9):
             result = results.get((q_idx, r_idx), {"correct": False, "reason": "missing"})
@@ -328,27 +419,31 @@ def main():
                 total_correct += 1
             total_judged += 1
 
-            # 候选预览：直接截断前 120 字符，不提取
+            # 候选预览：提取 final 后的前 120 字符
             candidate_full = rec.get(f"response{r_idx}", "")
-            cand_snippet = candidate_full[:120].replace("\n", " ")
+            cand_snippet = extract_final_answer(candidate_full)[:120].replace("\n", " ")
 
-            q_result["judgments"].append({
-                "run": r_idx,
-                "correct": is_correct,
-                "reason": reason,
-                "candidate_preview": cand_snippet,
-            })
+            q_result["judgments"].append(
+                {
+                    "run": r_idx,
+                    "correct": is_correct,
+                    "reason": reason,
+                    "candidate_final_preview": cand_snippet,
+                }
+            )
 
             marker = "✅" if is_correct else "❌"
             summary_lines.append(f"  {marker} Run{r_idx:02d}: {reason[:120]}")
-            summary_lines.append(f"      candidate preview: {cand_snippet!r}")
+            summary_lines.append(f"      candidate final: {cand_snippet!r}")
 
         for k in (1, 2, 4, 8):
             p = compute_pass_at_k(correct_flags, k)
             summary_lines.append(f"      pass@{k} = {p:.4f}")
 
     summary_lines.append(f"\n{'=' * 80}")
-    summary_lines.append(f"Overall: {total_correct}/{total_judged} correct ({total_correct/max(total_judged,1)*100:.1f}%)")
+    summary_lines.append(
+        f"Overall: {total_correct}/{total_judged} correct ({total_correct/max(total_judged,1)*100:.1f}%)"
+    )
     summary_lines.append("=" * 80)
 
     summary_text = "\n".join(summary_lines)
