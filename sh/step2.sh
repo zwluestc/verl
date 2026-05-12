@@ -20,11 +20,18 @@ mkdir -p "$OUTPUT_DIR"
 PIDS=()
 for ((i=0;i<WORKERS;i++)); do
   OUT_PART="$OUTPUT_DIR/part_${i}.jsonl"
+  LOG_PART="$OUTPUT_DIR/part_${i}.log"
   echo "Starting worker $i -> $OUT_PART (GPU $i)"
 
   # Export CUDA_VISIBLE_DEVICES for this subprocess so vLLM picks the correct GPU.
   (
     export CUDA_VISIBLE_DEVICES=$i
+    export CUDA_DEVICE_ORDER=PCI_BUS_ID
+    # Force vLLM to use spawn instead of fork to avoid CUDA context inheritance deadlock.
+    export VLLM_WORKER_MULTIPROC_METHOD=spawn
+    # Stagger initialization to avoid concurrent startup contention.
+    sleep $((i * 10))
+
     "$PYTHON_BIN" /mnt/data/zwl/verl/scripts/vllm_infer.py \
       --model "$MODEL_PATH" \
       --input "$INPUT_FILE" \
@@ -35,7 +42,8 @@ for ((i=0;i<WORKERS;i++)); do
       --repeats $REPEATS \
       --max-tokens $MAX_TOKENS \
       --temperature $TEMPERATURE \
-      --top-p $TOP_P
+      --top-p $TOP_P \
+      > "$LOG_PART" 2>&1
   ) &
   PIDS+=("$!")
 done

@@ -10,19 +10,20 @@ PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 
 #1）输入
 
-BASE_SEARCH_PATH="/mnt/oss/zwl/checkpoints/qwen3_4b_sft_mixed"
+BASE_SEARCH_PATH="/mnt/data/zwl/models/Qwen3-4B-Base"
+MODEL_PATH=${BASE_SEARCH_PATH}
 
-# 自动寻找序号最大的 global_step 文件夹
-# ls -d 匹配目录, sort -V 按数字版本排序 (100会排在99后面), tail -n 1 取最后一个
-LATEST_STEP_DIR=$(ls -d ${BASE_SEARCH_PATH}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
+# # 自动寻找序号最大的 global_step 文件夹
+# # ls -d 匹配目录, sort -V 按数字版本排序 (100会排在99后面), tail -n 1 取最后一个
+# LATEST_STEP_DIR=$(ls -d ${BASE_SEARCH_PATH}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
 
-if [ -z "$LATEST_STEP_DIR" ]; then
-    echo "❌ 错误: 在 ${BASE_SEARCH_PATH} 下没找到任何 global_step_* 文件夹"
-    exit 1
-fi
+# if [ -z "$LATEST_STEP_DIR" ]; then
+#     echo "❌ 错误: 在 ${BASE_SEARCH_PATH} 下没找到任何 global_step_* 文件夹"
+#     exit 1
+# fi
 
-# 拼接最终的 HuggingFace 路径
-MODEL_PATH="${LATEST_STEP_DIR}/huggingface"
+# # 拼接最终的 HuggingFace 路径
+# MODEL_PATH="${LATEST_STEP_DIR}/huggingface"
 
 echo "✅ 已自动定位最新模型路径: ${MODEL_PATH}"
 
@@ -42,7 +43,7 @@ mkdir -p "${TENSORBOARD_DIR}"
 
 
 #reward model
-REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_em_reward.py}
+REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_reward_api.py}
 
 # ==========================================
 # 2. 多卡硬件配置

@@ -89,7 +89,14 @@ def main() -> None:
     # will typically detect available GPU(s) based on environment vars.
     # Set ``gpu_memory_utilization`` slightly lower to avoid OOM in parallel runs.
     try:
-        llm = LLM(model=model_path, trust_remote_code=True, gpu_memory_utilization=0.85)
+        llm = LLM(
+            model=model_path,
+            trust_remote_code=True,
+            tensor_parallel_size=1,
+            device="cuda",
+            gpu_memory_utilization=0.85,
+            enforce_eager=True,
+        )
     except Exception as e:
         print(f"Failed to initialize vLLM (maybe try reducing GPU memory util further): {e}")
         raise
