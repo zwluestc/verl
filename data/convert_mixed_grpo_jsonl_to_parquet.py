@@ -86,14 +86,15 @@ def convert_records(raw_dataset: list[dict], data_source: str) -> list[dict]:
         ground_truth = extract_last_nonempty_tag(raw_output, "final")
         if not ground_truth:
             raise ValueError(f"Record {idx} has no non-empty <final>...</final> in output.")
+        prompt_messages = build_prompt(item)
 
         converted_rows.append(
             {
                 "uid": idx,
                 "data_source": data_source,
                 "ability": "reasoning",
-                "prompt": build_prompt(item),
-                "messages": build_prompt(item),
+                "prompt": prompt_messages,
+                "messages": prompt_messages,
                 "ground_truth": ground_truth,
                 "reward_model": {
                     "style": "rule",
@@ -103,6 +104,7 @@ def convert_records(raw_dataset: list[dict], data_source: str) -> list[dict]:
                     "index": idx,
                     "difficulty": item.get("difficulty", ""),
                     "view": item.get("view", ""),
+                    "prompt": prompt_messages[0]["content"],
                 },
                 "raw_output": raw_output,
                 "normalized_output": normalize_output_tags(raw_output),

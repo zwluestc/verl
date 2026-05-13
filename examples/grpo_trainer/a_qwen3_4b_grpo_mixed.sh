@@ -28,8 +28,8 @@ MODEL_PATH=${BASE_SEARCH_PATH}
 echo "✅ 已自动定位最新模型路径: ${MODEL_PATH}"
 
 #改数据path_only还是edge_only
-TRAIN_FILE=${TRAIN_FILE:-/mnt/data/zwl/verl/data/rl/qwen3_4b_grpo_mixed_train.parquet}
-VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/qwen3_4b_grpo_mixed_val.parquet}
+TRAIN_FILE=${TRAIN_FILE:-/mnt/data/zwl/verl/data/rl/mixed_40_grpo_train.parquet}
+VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/mixed_40_grpo_val.parquet}
 
 #2）输出
 
@@ -42,12 +42,8 @@ mkdir -p "${OUTPUT_DIR}"
 mkdir -p "${TENSORBOARD_DIR}"
 
 
-#reward model
-<<<<<<< Updated upstream
-REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_reward_api.py}
-=======
+# reward model
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
->>>>>>> Stashed changes
 
 # ==========================================
 # 2. 多卡硬件配置
