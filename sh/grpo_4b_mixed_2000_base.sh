@@ -35,9 +35,9 @@ VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/mixed_1000_grpo_val.parquet}
 #2）输出
 
 #保存到对应cp
-OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_grpo_mixed_base}
+OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_grpo_mixed_2000_base}
 #保存对应的tensorboard
-TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/grpo-4B_mixed_base}
+TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/grpo-4B_mixed_2000_base}
 
 # reward model
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
@@ -135,7 +135,6 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.entropy_coeff=0.01 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.entropy_coeff=0 \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
