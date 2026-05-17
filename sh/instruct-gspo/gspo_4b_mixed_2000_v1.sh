@@ -51,6 +51,7 @@ REF_LOGPROB_MB=${REF_LOGPROB_MB:-4}
 
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-10240}
 MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-10240}
+MAX_MODEL_LEN=${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.40}
 
 LR=${LR:-5e-7}
@@ -95,6 +96,7 @@ echo "ROLLOUT_LOGPROB_MB=${ROLLOUT_LOGPROB_MB}"
 echo "REF_LOGPROB_MB=${REF_LOGPROB_MB}"
 echo "MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH}"
 echo "MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH}"
+echo "MAX_MODEL_LEN=${MAX_MODEL_LEN}"
 echo "CLIP_RATIO_LOW=${CLIP_RATIO_LOW}"
 echo "CLIP_RATIO_HIGH=${CLIP_RATIO_HIGH}"
 echo "LOSS_AGG_MODE=${LOSS_AGG_MODE}"
@@ -134,6 +136,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.gpu_memory_utilization=${GPU_MEMORY_UTILIZATION} \
+    actor_rollout_ref.rollout.max_model_len=${MAX_MODEL_LEN} \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=${ROLLOUT_LOGPROB_MB} \
     actor_rollout_ref.rollout.n=${ROLLOUT_N} \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=${REF_LOGPROB_MB} \
