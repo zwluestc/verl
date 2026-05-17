@@ -6,6 +6,7 @@ import os
 import json
 import time
 import fcntl
+from urllib.parse import urlparse
 import requests
 from typing import Any
 
@@ -22,9 +23,36 @@ Rules:
 6. Do NOT output thinking tags like <think>. Output JSON directly.
 """
 
-DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_API_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
-DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash")
+def _first_nonempty_env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _build_chat_completions_url() -> str:
+    explicit_url = _first_nonempty_env("LLM_API_URL", "DEEPSEEK_API_URL")
+    if explicit_url:
+        return explicit_url
+
+    base_url = _first_nonempty_env("LLM_API_BASE_URL", "BASE_URL", "DEEPSEEK_API_BASE_URL")
+    if not base_url:
+        return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+    base_url = base_url.rstrip("/")
+    parsed = urlparse(base_url)
+    path = parsed.path.rstrip("/")
+    if path.endswith("/chat/completions"):
+        return base_url
+    if path.endswith("/v1"):
+        return f"{base_url}/chat/completions"
+    return f"{base_url}/v1/chat/completions"
+
+
+DEEPSEEK_API_KEY = _first_nonempty_env("LLM_API_KEY", "API_KEY", "DEEPSEEK_API_KEY")
+DEEPSEEK_API_URL = _build_chat_completions_url()
+DEEPSEEK_MODEL = _first_nonempty_env("LLM_JUDGE_MODEL", "DEEPSEEK_MODEL") or "deepseek-v4-flash"
 _FINAL_TAG_PATTERN = re.compile(r"<final>(.*?)</final>", re.IGNORECASE | re.DOTALL)
 _CORRECT_FLAG_PATTERN = re.compile(r'"correct"\s*:\s*(true|false)', re.IGNORECASE)
 REWARD_DEBUG_LOG = os.environ.get("REWARD_DEBUG_LOG", "")
