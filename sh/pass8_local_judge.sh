@@ -56,7 +56,7 @@ python judge_by_local_qwen3.py \
     --input output/merged.jsonl \
     --output output/qwen3_judge_results.jsonl \
     --summary output/qwen3_judge_summary.txt \
-    --num_questions 10 \
+    --num_questions 20000 \
     --num_gpus 8 \
     --max_new_tokens 12800
 
