@@ -13,6 +13,18 @@ PROJECT_DIR=$(cd -- "${SCRIPT_DIR}/../.." && pwd)
 BASE_SEARCH_PATH="/mnt/data/zwl/models/Qwen3-4B-Base"
 MODEL_PATH=${BASE_SEARCH_PATH}
 
+# # 自动寻找序号最大的 global_step 文件夹
+# # ls -d 匹配目录, sort -V 按数字版本排序 (100会排在99后面), tail -n 1 取最后一个
+# LATEST_STEP_DIR=$(ls -d ${BASE_SEARCH_PATH}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
+
+# if [ -z "$LATEST_STEP_DIR" ]; then
+#     echo "❌ 错误: 在 ${BASE_SEARCH_PATH} 下没找到任何 global_step_* 文件夹"
+#     exit 1
+# fi
+
+# # 拼接最终的 HuggingFace 路径
+# MODEL_PATH="${LATEST_STEP_DIR}/huggingface"
+
 echo "✅ 已自动定位最新模型路径: ${MODEL_PATH}"
 
 # 默认沿用当前已有 parquet；实际跑 2000 条数据时，请通过 TRAIN_FILE / VAL_FILE
@@ -22,10 +34,10 @@ VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/mixed_500_grpo_val.parquet}
 
 #2）输出
 
-# 保存到对应 checkpoint
-OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_gspo_mixed_2000_v4}
-# 保存对应的 tensorboard
-TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/gspo-4B_mixed_2000_v4}
+#保存到对应cp
+OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_grpo_mixed_1000_v2}
+#保存对应的tensorboard
+TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/grpo-4B_mixed_1000_v2}
 
 # reward model
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
@@ -36,14 +48,18 @@ REWARD_DEBUG_LIMIT=${REWARD_DEBUG_LIMIT:-1000}
 # 2. 多卡硬件配置
 # ==========================================
 NNODES=${NNODES:-1}
-N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-8}
+N_GPUS_PER_NODE=${N_GPUS_PER_NODE:-8} # 修改为 8 张卡
 
 # ==========================================
-# 3. 内存与 Batch Size 配置
+# 3. 内存与 Batch Size 配置 (针对约 2000 条训练数据、每题 rollout 6 次调优)
 # ==========================================
+# 长上下文 (20k/20k) 下先保守一点，默认 batch_size=16；
+# 约 2000 条数据时，单 epoch 大约 125 steps，训练节奏比较平稳。
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-16}
+# 每个 prompt 采样 6 次，满足当前训练需求。
 ROLLOUT_N=${ROLLOUT_N:-6}
 
+# 16 个 prompt * 6 个 rollout = 96 个生成样本，PPO batch 同步放到 16。
 PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE:-16}
 PPO_MICRO_BATCH_SIZE=${PPO_MICRO_BATCH_SIZE:-2}
 ROLLOUT_LOGPROB_MB=${ROLLOUT_LOGPROB_MB:-4}
@@ -51,20 +67,16 @@ REF_LOGPROB_MB=${REF_LOGPROB_MB:-4}
 
 MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH:-10240}
 MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-10240}
-GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.40}
+GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.40} # 如果vllm显存吃紧，可微调此项 0.35~0.5 之间
 
 LR=${LR:-5e-7}
 TOTAL_EPOCHS=${TOTAL_EPOCHS:-1}
+# 2000 条数据下把 save/test 频率放缓，避免频繁打断主训练。
 SAVE_FREQ=${SAVE_FREQ:-25}
 TEST_FREQ=${TEST_FREQ:-25}
 
-# GSPO 关键配置
-CLIP_RATIO_LOW=${CLIP_RATIO_LOW:-0.0003}
-CLIP_RATIO_HIGH=${CLIP_RATIO_HIGH:-0.0004}
-LOSS_AGG_MODE=${LOSS_AGG_MODE:-seq-mean-token-mean}
-
-PROJECT_NAME=${PROJECT_NAME:-qwen3_4b_gspo}
-EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_4b_gspo_run}
+PROJECT_NAME=${PROJECT_NAME:-qwen3_4b_grpo}
+EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_4b_grpo_run}
 
 # 每次运行前清空旧输出，避免自动 resume 到历史 checkpoint。
 rm -rf "${OUTPUT_DIR}"
@@ -74,14 +86,15 @@ rm -f "${REWARD_DEBUG_LOG}"
 cd "${PROJECT_DIR}"
 
 # ==========================================
-# 4. 启动 Ray 并执行 GSPO 训练
+# 4. 启动 Ray 并执行 GRPO 训练
 # ==========================================
+# 放开所有 8 张卡的可见性
 export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export TENSORBOARD_DIR="${TENSORBOARD_DIR}"
 export REWARD_DEBUG_LOG
 export REWARD_DEBUG_LIMIT
 
-echo "🚀 Starting fresh GSPO run"
+echo "🚀 Starting fresh GRPO run"
 echo "TRAIN_FILE=${TRAIN_FILE}"
 echo "VAL_FILE=${VAL_FILE}"
 echo "OUTPUT_DIR=${OUTPUT_DIR}"
@@ -95,14 +108,10 @@ echo "ROLLOUT_LOGPROB_MB=${ROLLOUT_LOGPROB_MB}"
 echo "REF_LOGPROB_MB=${REF_LOGPROB_MB}"
 echo "MAX_PROMPT_LENGTH=${MAX_PROMPT_LENGTH}"
 echo "MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH}"
-echo "CLIP_RATIO_LOW=${CLIP_RATIO_LOW}"
-echo "CLIP_RATIO_HIGH=${CLIP_RATIO_HIGH}"
-echo "LOSS_AGG_MODE=${LOSS_AGG_MODE}"
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     algorithm.use_kl_in_reward=False \
-    algorithm.kl_ctrl.kl_coef=0.0 \
     trainer.critic_warmup=0 \
     trainer.val_before_train=False \
     trainer.device='cuda' \
@@ -122,13 +131,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.fsdp_config.use_orig_params=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=${PPO_MINI_BATCH_SIZE} \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=${PPO_MICRO_BATCH_SIZE} \
-    actor_rollout_ref.actor.policy_loss.loss_mode=gspo \
-    actor_rollout_ref.actor.loss_agg_mode=${LOSS_AGG_MODE} \
-    actor_rollout_ref.actor.clip_ratio_low=${CLIP_RATIO_LOW} \
-    actor_rollout_ref.actor.clip_ratio_high=${CLIP_RATIO_HIGH} \
-    actor_rollout_ref.actor.use_kl_loss=False \
-    actor_rollout_ref.actor.kl_loss_coef=0.0 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.003 \
     actor_rollout_ref.actor.entropy_coeff=0 \
+    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=vllm \
@@ -158,17 +164,19 @@ python3 -m verl.trainer.main_ppo \
 # ==========================================
 echo "🏁 训练结束，开始寻找最新的 Checkpoint 进行合并..."
 
-LATEST_GSPO_STEP_DIR=$(ls -d ${OUTPUT_DIR}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
+# 自动寻找刚才 GRPO 训练输出的最新 step 文件夹
+LATEST_GRPO_STEP_DIR=$(ls -d ${OUTPUT_DIR}/global_step_* 2>/dev/null | sort -V | tail -n 1 || true)
 
-if [ -n "$LATEST_GSPO_STEP_DIR" ]; then
-    echo "🔍 找到最新 GSPO Checkpoint: ${LATEST_GSPO_STEP_DIR}"
+if [ -n "$LATEST_GRPO_STEP_DIR" ]; then
+    echo "🔍 找到最新 GRPO Checkpoint: ${LATEST_GRPO_STEP_DIR}"
 
-    ACTOR_DIR="${LATEST_GSPO_STEP_DIR}/actor"
-    HF_OUTPUT_DIR="${LATEST_GSPO_STEP_DIR}/huggingface"
+    ACTOR_DIR="${LATEST_GRPO_STEP_DIR}/actor"
+    HF_OUTPUT_DIR="${LATEST_GRPO_STEP_DIR}/huggingface"
 
     mkdir -p "${HF_OUTPUT_DIR}"
 
     echo "⚙️ 开始执行 verl.model_merger 将 FSDP 转换为 HF 格式..."
+    # 调用 verl 官方合并工具
     python3 -m verl.model_merger merge \
         --backend fsdp \
         --local_dir "${ACTOR_DIR}" \

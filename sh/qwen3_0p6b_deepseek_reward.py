@@ -38,7 +38,7 @@ def _build_chat_completions_url() -> str:
 
     base_url = _first_nonempty_env("LLM_API_BASE_URL", "BASE_URL", "DEEPSEEK_API_BASE_URL")
     if not base_url:
-        return "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+        return "https://api.deepseek.com/v1/chat/completions"
 
     base_url = base_url.rstrip("/")
     parsed = urlparse(base_url)

@@ -23,9 +23,9 @@ VAL_FILE=${VAL_FILE:-/mnt/data/zwl/verl/data/rl/mixed_500_grpo_val.parquet}
 #2）输出
 
 # 保存到对应 checkpoint
-OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_gspo_mixed_2000_v4}
+OUTPUT_DIR=${OUTPUT_DIR:-/mnt/oss/zwl/checkpoints/qwen3_4b_gspo_mixed_1000_v2}
 # 保存对应的 tensorboard
-TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/gspo-4B_mixed_2000_v4}
+TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/gspo-4B_mixed_1000_v2}
 
 # reward model
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/qwen3_0p6b_deepseek_reward.py}
@@ -54,7 +54,7 @@ MAX_RESPONSE_LENGTH=${MAX_RESPONSE_LENGTH:-10240}
 GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.40}
 
 LR=${LR:-5e-7}
-TOTAL_EPOCHS=${TOTAL_EPOCHS:-1}
+TOTAL_EPOCHS=${TOTAL_EPOCHS:-2}
 SAVE_FREQ=${SAVE_FREQ:-25}
 TEST_FREQ=${TEST_FREQ:-25}
 
