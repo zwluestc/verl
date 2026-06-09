@@ -31,6 +31,12 @@ TENSORBOARD_DIR=${TENSORBOARD_DIR:-/mnt/oss/zwl/log/gspo-4B_instruct_2507_mixed_
 REWARD_FN=${REWARD_FN:-${SCRIPT_DIR}/../qwen3_0p6b_deepseek_reward.py}
 REWARD_DEBUG_LOG=${REWARD_DEBUG_LOG:-${OUTPUT_DIR}/reward_judge_debug.jsonl}
 REWARD_DEBUG_LIMIT=${REWARD_DEBUG_LIMIT:-1000}
+REWARD_NUM_WORKERS=${REWARD_NUM_WORKERS:-4}
+LLM_JUDGE_MIN_INTERVAL=${LLM_JUDGE_MIN_INTERVAL:-0.25}
+LLM_JUDGE_MAX_RETRIES=${LLM_JUDGE_MAX_RETRIES:-2}
+LLM_JUDGE_MAX_TOKENS=${LLM_JUDGE_MAX_TOKENS:-1024}
+LLM_JUDGE_TIMEOUT=${LLM_JUDGE_TIMEOUT:-30}
+LLM_JUDGE_ENABLE_THINKING=${LLM_JUDGE_ENABLE_THINKING:-false}
 
 # ==========================================
 # 2. 多卡硬件配置
@@ -68,8 +74,11 @@ PROJECT_NAME=${PROJECT_NAME:-qwen3_4b_instruct_2507_gspo}
 EXPERIMENT_NAME=${EXPERIMENT_NAME:-qwen3_4b_instruct_2507_gspo_v2}
 
 # 每次运行前清空旧输出，避免自动 resume 到历史 checkpoint。
-rm -rf "${OUTPUT_DIR}"
+# /mnt/oss is backed by ossfs2; removing the directory itself can fail with
+# "Directory not empty" even when no entries are visible. Keep the directory and
+# remove only its visible contents.
 mkdir -p "${OUTPUT_DIR}"
+find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 mkdir -p "${TENSORBOARD_DIR}"
 rm -f "${REWARD_DEBUG_LOG}"
 cd "${PROJECT_DIR}"
@@ -81,6 +90,11 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export TENSORBOARD_DIR="${TENSORBOARD_DIR}"
 export REWARD_DEBUG_LOG
 export REWARD_DEBUG_LIMIT
+export LLM_JUDGE_MIN_INTERVAL
+export LLM_JUDGE_MAX_RETRIES
+export LLM_JUDGE_MAX_TOKENS
+export LLM_JUDGE_TIMEOUT
+export LLM_JUDGE_ENABLE_THINKING
 
 echo "🚀 Starting fresh GSPO run"
 echo "TRAIN_FILE=${TRAIN_FILE}"
@@ -88,6 +102,12 @@ echo "VAL_FILE=${VAL_FILE}"
 echo "OUTPUT_DIR=${OUTPUT_DIR}"
 echo "REWARD_DEBUG_LOG=${REWARD_DEBUG_LOG}"
 echo "REWARD_DEBUG_LIMIT=${REWARD_DEBUG_LIMIT}"
+echo "REWARD_NUM_WORKERS=${REWARD_NUM_WORKERS}"
+echo "LLM_JUDGE_MIN_INTERVAL=${LLM_JUDGE_MIN_INTERVAL}"
+echo "LLM_JUDGE_MAX_RETRIES=${LLM_JUDGE_MAX_RETRIES}"
+echo "LLM_JUDGE_MAX_TOKENS=${LLM_JUDGE_MAX_TOKENS}"
+echo "LLM_JUDGE_TIMEOUT=${LLM_JUDGE_TIMEOUT}"
+echo "LLM_JUDGE_ENABLE_THINKING=${LLM_JUDGE_ENABLE_THINKING}"
 echo "TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE}"
 echo "ROLLOUT_N=${ROLLOUT_N}"
 echo "PPO_MINI_BATCH_SIZE=${PPO_MINI_BATCH_SIZE}"
@@ -145,6 +165,7 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     reward.custom_reward_function.path="${REWARD_FN}" \
     reward.custom_reward_function.name=compute_score \
+    reward.num_workers=${REWARD_NUM_WORKERS} \
     trainer.logger='["console", "tensorboard"]' \
     trainer.project_name="${PROJECT_NAME}" \
     trainer.experiment_name="${EXPERIMENT_NAME}" \
