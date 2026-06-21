@@ -54,9 +54,26 @@ DEEPSEEK_API_KEY = _first_nonempty_env("LLM_API_KEY", "API_KEY", "DEEPSEEK_API_K
 DEEPSEEK_API_URL = _build_chat_completions_url()
 DEEPSEEK_MODEL = _first_nonempty_env("LLM_JUDGE_MODEL", "DEEPSEEK_MODEL") or "deepseek-v4-flash"
 _FINAL_TAG_PATTERN = re.compile(r"<final>(.*?)</final>", re.IGNORECASE | re.DOTALL)
+_BOXED_PATTERN = re.compile(r"\\boxed\s*{", re.IGNORECASE)
 _CORRECT_FLAG_PATTERN = re.compile(r'"correct"\s*:\s*(true|false)', re.IGNORECASE)
 REWARD_DEBUG_LOG = os.environ.get("REWARD_DEBUG_LOG", "")
 REWARD_DEBUG_LIMIT = min(int(os.environ.get("REWARD_DEBUG_LIMIT", "1000")), 1000)
+LOCAL_RULE_ONLY_SOURCES = {"deepmath", "metamath", "openr1math", "sciinstruct", "wildsci"}
+
+try:
+    import sympy as _sympy
+    from sympy.parsing.sympy_parser import (
+        convert_xor,
+        implicit_multiplication_application,
+        parse_expr,
+        standard_transformations,
+    )
+
+    _SYMPY_TRANSFORMS = standard_transformations + (implicit_multiplication_application, convert_xor)
+except Exception:
+    _sympy = None
+    parse_expr = None
+    _SYMPY_TRANSFORMS = None
 
 
 def _clean_judge_text(text: str) -> str:
@@ -241,16 +258,85 @@ def _to_text(value: Any) -> str:
     return "" if value is None else (value if isinstance(value, str) else str(value))
 
 
+def _strip_balanced_braces(text: str) -> str:
+    text = text.strip()
+    changed = True
+    while changed and len(text) >= 2 and text[0] == "{" and text[-1] == "}":
+        changed = False
+        depth = 0
+        balanced_outer = True
+        for i, ch in enumerate(text):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0 and i != len(text) - 1:
+                    balanced_outer = False
+                    break
+            if depth < 0:
+                balanced_outer = False
+                break
+        if balanced_outer and depth == 0:
+            text = text[1:-1].strip()
+            changed = True
+    return text
+
+
+def _extract_last_boxed(text: Any) -> str:
+    raw = _to_text(text)
+    matches = list(_BOXED_PATTERN.finditer(raw))
+    for match in reversed(matches):
+        start = match.end()
+        depth = 1
+        for pos in range(start, len(raw)):
+            if raw[pos] == "{":
+                depth += 1
+            elif raw[pos] == "}":
+                depth -= 1
+                if depth == 0:
+                    return raw[start:pos].strip()
+    return ""
+
+
+def _remove_latex_wrappers(text: str) -> str:
+    text = text.strip()
+    wrappers = (
+        r"\\mathrm",
+        r"\\mathbf",
+        r"\\mathit",
+        r"\\mathsf",
+        r"\\text",
+        r"\\operatorname",
+    )
+    changed = True
+    while changed:
+        changed = False
+        for wrapper in wrappers:
+            pattern = re.compile(wrapper + r"\s*{([^{}]*)}")
+            new_text = pattern.sub(r"\1", text)
+            if new_text != text:
+                text = new_text
+                changed = True
+    return text
+
+
 def _normalize(text: Any) -> str:
     text = _to_text(text).replace("\u3000", " ").replace("\xa0", " ").lower()
+    text = _remove_latex_wrappers(text)
+    text = text.replace("−", "-").replace("–", "-").replace("—", "-")
     text = text.replace("\\dfrac", "\\frac").replace("\\left(", "(").replace("\\right)", ")")
     text = text.replace("\\left[", "[").replace("\\right]", "]")
     text = text.replace("\\left\\{", "{").replace("\\right\\}", "}")
+    text = text.replace("\\left", "").replace("\\right", "")
     text = text.replace("\\times", "*").replace("\\cdot", "*")
+    text = text.replace("\\div", "/")
     text = text.replace("^{2}", "^2").replace("^{3}", "^3")
+    text = text.replace("^\\circ", "").replace("\\%", "%")
     text = text.replace("\\,", "").replace("\\;", "").replace("\\:", "").replace("\\!", "")
     text = text.replace("\\ ", "").replace("{", "").replace("}", "")
-    text = re.sub(r"\s+", " ", text).strip(" \n\t\r.,。，:：;；!！?？'\"`\"""''()[]").replace(" ", "")
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"^(?:final\s+answer|answer|答案)\s*(?:is|=|:|：)?\s*", "", text, flags=re.IGNORECASE)
+    text = text.strip(" \n\t\r.,。，:：;；!！?？'\"`\"""''()[]").replace(" ", "")
     return text
 
 
@@ -263,11 +349,195 @@ def _extract_last_nonempty_final(text: Any) -> str:
     return ""
 
 
+def _extract_official_answer(text: Any) -> str:
+    raw = _to_text(text).strip()
+    if not raw:
+        return ""
+
+    tagged = _extract_last_nonempty_final(raw)
+    if tagged:
+        return tagged.strip()
+
+    boxed = _extract_last_boxed(raw)
+    if boxed:
+        return boxed.strip()
+
+    patterns = [
+        r"####\s*(.+?)\s*$",
+        r"(?:the\s+)?(?:final\s+)?answer\s+is\s*:?\s*(.+?)\s*$",
+        r"(?:therefore|thus|so),?\s*(?:the\s+)?(?:final\s+)?answer\s+is\s*:?\s*(.+?)\s*$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, raw, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            candidate = match.group(1).strip()
+            return candidate.splitlines()[-1].strip()
+
+    return raw
+
+
 def _extract_tail_candidate(text: Any, max_chars: int = 500) -> str:
     normalized = _to_text(text).strip()
     if not normalized:
         return ""
     return normalized[-max_chars:]
+
+
+def _split_top_level(text: str, separators: str = ",;") -> list[str]:
+    parts = []
+    start = 0
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth = max(depth - 1, 0)
+        elif ch in separators and depth == 0:
+            part = text[start:i].strip()
+            if part:
+                parts.append(part)
+            start = i + 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _extract_choice(text: str) -> str:
+    candidate = _extract_official_answer(text)
+    normalized = candidate.strip().upper()
+    match = re.fullmatch(r"\(?\s*([A-Z])\s*\)?", normalized)
+    if match:
+        return match.group(1)
+
+    match = re.search(r"(?:answer|option|choice)\s*(?:is|:)?\s*\(?\s*([A-Z])\s*\)?", normalized)
+    if match:
+        return match.group(1)
+    return ""
+
+
+def _latex_to_sympy_text(text: str) -> str:
+    text = _extract_official_answer(text)
+    text = _remove_latex_wrappers(text)
+    text = text.replace("−", "-").replace("–", "-").replace("—", "-")
+    text = text.replace("\\left", "").replace("\\right", "")
+    text = text.replace("\\,", "").replace("\\;", "").replace("\\:", "").replace("\\!", "")
+    text = text.replace("\\times", "*").replace("\\cdot", "*").replace("\\div", "/")
+    text = text.replace("\\pi", "pi").replace("\\infty", "oo")
+    text = text.replace("^", "**")
+    text = text.replace("%", "/100")
+    text = re.sub(r"\\sqrt\s*{([^{}]+)}", r"sqrt(\1)", text)
+    text = re.sub(r"\\sqrt\s*([A-Za-z0-9.]+)", r"sqrt(\1)", text)
+
+    frac_pattern = re.compile(r"\\(?:dfrac|tfrac|frac)\s*{([^{}]+)}\s*{([^{}]+)}")
+    previous = None
+    while previous != text:
+        previous = text
+        text = frac_pattern.sub(r"((\1)/(\2))", text)
+
+    text = re.sub(r"\\(?:sin|cos|tan|log|ln|exp)\b", lambda m: m.group(0)[1:], text)
+    text = re.sub(r"(?<![A-Za-z])e(?![A-Za-z])", "E", text)
+    text = text.replace("{", "(").replace("}", ")")
+    text = text.replace("[", "(").replace("]", ")")
+    text = re.sub(r"\s+", "", text)
+    text = _strip_balanced_braces(text)
+    return text
+
+
+def _parse_sympy_expr(text: str):
+    if _sympy is None or parse_expr is None:
+        return None
+
+    expr_text = _latex_to_sympy_text(text)
+    if not expr_text:
+        return None
+    if re.search(r"[<>=]", expr_text):
+        return None
+
+    try:
+        return parse_expr(expr_text, transformations=_SYMPY_TRANSFORMS, evaluate=True)
+    except Exception:
+        return None
+
+
+def _numeric_equal(pred: str, gt: str) -> bool:
+    pred_norm = _normalize(pred)
+    gt_norm = _normalize(gt)
+    number_pattern = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[-+]?\d+)?%?"
+    if not re.fullmatch(number_pattern, pred_norm) or not re.fullmatch(number_pattern, gt_norm):
+        return False
+
+    def to_float(value: str) -> float:
+        if value.endswith("%"):
+            return float(value[:-1]) / 100.0
+        return float(value)
+
+    try:
+        p_val = to_float(pred_norm)
+        g_val = to_float(gt_norm)
+    except Exception:
+        return False
+    return abs(p_val - g_val) <= max(1e-8, 1e-6 * abs(g_val))
+
+
+def _sympy_equal(pred: str, gt: str) -> bool:
+    pred_expr = _parse_sympy_expr(pred)
+    gt_expr = _parse_sympy_expr(gt)
+    if pred_expr is None or gt_expr is None:
+        return False
+
+    try:
+        diff = _sympy.simplify(pred_expr - gt_expr)
+        if diff == 0:
+            return True
+        if diff.is_number:
+            return abs(float(diff.evalf())) <= 1e-8
+    except Exception:
+        return False
+    return False
+
+
+def _local_rule_score(pred_candidate: str, gt_final: str, data_source: Any) -> tuple[float, str]:
+    source = _to_text(data_source).strip().lower()
+
+    if source == "wildsci":
+        pred_choice = _extract_choice(pred_candidate)
+        gt_choice = _extract_choice(gt_final)
+        if pred_choice and gt_choice:
+            return (1.0, "local_choice_match") if pred_choice == gt_choice else (0.0, "local_choice_mismatch")
+
+    pred_answer = _extract_official_answer(pred_candidate)
+    gt_answer = _extract_official_answer(gt_final)
+    pred_norm = _normalize(pred_answer)
+    gt_norm = _normalize(gt_answer)
+
+    if pred_norm and pred_norm == gt_norm:
+        return 1.0, "local_normalized_exact_match"
+
+    if _numeric_equal(pred_answer, gt_answer):
+        return 1.0, "local_numeric_equivalence"
+
+    pred_parts = _split_top_level(pred_answer)
+    gt_parts = _split_top_level(gt_answer)
+    if len(pred_parts) > 1 and len(pred_parts) == len(gt_parts):
+        unmatched = gt_parts[:]
+        for pred_part in pred_parts:
+            for idx, gt_part in enumerate(unmatched):
+                if (
+                    _normalize(pred_part) == _normalize(gt_part)
+                    or _numeric_equal(pred_part, gt_part)
+                    or _sympy_equal(pred_part, gt_part)
+                ):
+                    unmatched.pop(idx)
+                    break
+            else:
+                return 0.0, "local_tuple_mismatch"
+        return 1.0, "local_tuple_equivalence"
+
+    if _sympy_equal(pred_answer, gt_answer):
+        return 1.0, "local_symbolic_equivalence"
+
+    return 0.0, "local_rule_mismatch"
 
 
 def _append_debug_log(payload: dict[str, Any]) -> None:
@@ -363,9 +633,9 @@ def compute_score(data_source=None, solution_str=None, ground_truth=None, extra_
     if question == "Unknown Question" and isinstance(extra_info, dict):
         question = extra_info.get("prompt", "Unknown Question")
 
-    # Prefer the last non-empty <final> block when present. If the model fails to emit
-    # a final block, we fall back to the tail of the raw reasoning text with a capped reward.
-    pred_final = _extract_last_nonempty_final(pred_text)
+    # Prefer explicit final-answer markers. The math/science GSPO datasets ask for
+    # either <final>...</final> or \boxed{}, so both are accepted as official answers.
+    pred_final = _extract_last_nonempty_final(pred_text) or _extract_last_boxed(pred_text)
     used_tail_fallback = False
     max_reward_if_correct = 1.0
     pred_candidate = pred_final
@@ -386,9 +656,9 @@ def compute_score(data_source=None, solution_str=None, ground_truth=None, extra_
             )
             return 0.0
 
-    # The GRPO dataset should already store the extracted <final> content as ground_truth.
-    # If a tagged string is passed in, still normalize to the final block for safety.
-    gt_final = _extract_last_nonempty_final(gt_text) or gt_text.strip()
+    # The dataset should already store the extracted final answer as ground_truth.
+    # If a tagged or boxed string is passed in, still normalize to the final answer.
+    gt_final = _extract_official_answer(gt_text)
     if not gt_final:
         _maybe_log_reward_case(
             question=question,
@@ -401,21 +671,37 @@ def compute_score(data_source=None, solution_str=None, ground_truth=None, extra_
         )
         return 0.0
 
-    # 1. Exact-match fast path on normalized final answers only.
-    if _normalize(pred_candidate) == _normalize(gt_final):
-        score = max_reward_if_correct
+    score, local_reason = _local_rule_score(pred_candidate, gt_final, data_source)
+    if score > 0.0:
+        score *= max_reward_if_correct
         _maybe_log_reward_case(
             question=question,
             gt_final=gt_final,
             pred_final=pred_candidate,
             score=score,
-            reason="normalized_exact_match_tail_fallback" if used_tail_fallback else "normalized_exact_match",
+            reason=f"{local_reason}_tail_fallback" if used_tail_fallback else local_reason,
             used_llm_judge=False,
             raw_prediction=pred_text,
         )
         return score
 
-    # 2. LLM-as-judge on final answers only.
+    if _to_text(data_source).strip().lower() in LOCAL_RULE_ONLY_SOURCES:
+        _maybe_log_reward_case(
+            question=question,
+            gt_final=gt_final,
+            pred_final=pred_candidate,
+            score=0.0,
+            reason=(
+                f"{local_reason}_api_disabled_tail_fallback"
+                if used_tail_fallback
+                else f"{local_reason}_api_disabled"
+            ),
+            used_llm_judge=False,
+            raw_prediction=pred_text,
+        )
+        return 0.0
+
+    # 2. LLM-as-judge on final answers only for datasets that are not rule-only.
     llm_score = llm_judge(question, gt_final, pred_candidate)
     if llm_score != -1.0:
         score = max_reward_if_correct if llm_score > 0.0 else 0.0
