@@ -1,132 +1,139 @@
 # Reward Scoring Logic — `qwen3_0p6b_deepseek_reward.py`
 
-## 主流程 `compute_score()`
+## 一、主流程 `compute_score()`
 
 ```
-预测文本
+预测文本 (solution_str)
   │
-  ├─ 提取答案：<final>…</final> 或 \boxed{}  → max_reward = 1.0
-  └─ 都没有：取末尾 500 字符                 → max_reward = 0.8（惩罚未遵循格式）
-        └─ 还是空 → 直接返回 0.0
-
-ground_truth → _extract_official_answer()
-
-↓
-Step 1: _local_rule_score()（纯规则，无 API）
-  ├─ wildsci 特判：先走选择题字母匹配 (A/B/C/D)
-  ├─ normalized 精确匹配（去 LaTeX 符号、空格、大小写等）
-  ├─ 数值等价（浮点，相对误差 1e-6）
-  ├─ 多元组拆分匹配（逗号/分号分隔，顺序无关）
-  └─ SymPy 符号化等价（化简后差为 0）
-
-↓ 规则得分 > 0 → 直接返回（乘以 max_reward）
-
-↓ 规则得分 = 0
-Step 2: 检查是否在 LOCAL_RULE_ONLY_SOURCES
-  {"deepmath", "metamath", "openr1math", "sciinstruct", "wildsci"}
-  └─ 在集合里 → 直接返回 0.0，不调 API
-
-↓ 不在集合里
-Step 3: LLM Judge（DeepSeek API）→ 返回 0/1
-↓ API 失败
-Step 4: 兜底精确匹配
+  ├─ Step 0：提取预测答案
+  │    ├─ 有 <final>…</final> 或 \boxed{} → pred_candidate，max_reward = 1.0
+  │    └─ 都没有 → 取末尾 500 字符作为 pred_candidate，max_reward = 0.8
+  │          └─ 末尾也为空 → 直接返回 0.0
+  │
+  ├─ Step 0b：提取 ground_truth 最终答案（_extract_official_answer）
+  │    └─ 为空 → 直接返回 0.0
+  │
+  ├─ Step 1：本地规则打分 _local_rule_score()
+  │    └─ score > 0 → 返回 score × max_reward（结束）
+  │
+  ├─ Step 2：LLM Judge（DeepSeek API）
+  │    ├─ 返回 1.0/0.0 → 返回对应 max_reward 或 0（结束）
+  │    └─ 返回 -1.0（API 不可用/报错）→ 继续
+  │
+  └─ Step 3：兜底——对已提取答案做 normalized 精确匹配
+       └─ 返回 max_reward 或 0.0
 ```
 
-## 各数据集适配分析（不用 API）
-
-对于 `LOCAL_RULE_ONLY_SOURCES` 里的五个数据集，代码**硬性关闭了 LLM Judge API 调用**，完全依赖本地规则判分。
-
-| 数据集 | 答案类型 | 本地规则覆盖率 | 适合程度 |
-|--------|---------|---------------|---------|
-| **WildSci** | 选择题 (A/B/C/D) | 高：专门写了 `_extract_choice` 逻辑 | 适合 |
-| **DeepMath** | 数学竞赛，答案多为数值或简单解析式 | 中高：numeric + sympy 能覆盖大多数 | 基本适合 |
-| **Metamath** | 形式化证明/定理，答案格式极规范 | 中：标准形式精确匹配率高，复杂符号式 sympy 可能解析失败 | 部分适合 |
-| **OpenR1Math** | 数学题，答案多为数值/分数/根式 | 中高：numeric + sympy 覆盖主流，复杂表达式有盲区 | 基本适合 |
-| **SciInstruct** | 科学计算，含数值和公式 | 中：依赖 numeric + sympy，复杂物理公式可能漏判 | 部分适合 |
-
-## 代码级问题（不用 API 时的具体风险）
-
-### 问题 1：`_normalize()` 会破坏分数表达式（高风险）
-
-`_normalize()` 的处理顺序是：先把 `\dfrac` 替换成 `\frac`，最后把所有 `{` `}` 删掉（L387）。
-结果：`\frac{1}{2}` → `\frac12`，而不是 `1/2` 或 `0.5`。
-
-```
-# 模型答案用斜线：1/2   → _normalize → "1/2"
-# gt 用 LaTeX 分数：\frac{1}{2} → _normalize → "\frac12"
-# 两者不等 → 精确匹配失败
-```
-
-字符串精确匹配对不同写法的分数完全失效，**唯一兜底是 sympy**。
-一旦 sympy 未安装或解析失败，分数形式的答案就会误判为错。
-
-### 问题 2：含 `=`/`<`/`>` 的答案绕过 sympy（中风险）
-
-`_parse_sympy_expr()` 第 507 行：
-
-```python
-if re.search(r"[<>=]", expr_text):
-    return None
-```
-
-任何含等号的表达式（如 `x = 3`、区间 `x ≥ 1`）都不走 sympy。
-这时只靠 `_normalize()` 做字符串比较——空格变化、`\,` 等细微差异都会导致匹配失败，
-且对不同但等价的写法（`x=3` vs `x = 3`）依赖 normalize 去空格，而对 `3` vs `x=3` 这种情况完全无法判断。
-
-### 问题 3：sympy 不可用时覆盖率大幅下降（高风险）
-
-代码用 `try/except` 导入 sympy（L63–76），失败时 `_sympy = None`，`_sympy_equal` 始终返回 `False`。
-此时对 LOCAL_RULE_ONLY_SOURCES 只剩两条路：
-
-- 精确字符串匹配（形式敏感，如上述分数问题）
-- 纯数值比较（仅 `[-+]?\d+(\.\d*)?(e...)?%?` 格式，不含任何字母）
-
-`\sqrt{2}/2`、`\pi/4`、`e^{i\pi}+1` 等所有符号答案在 sympy 缺失时全部返回 0.0。
-
-### 问题 4：WildSci 选项提取有退路但不保险（低-中风险）
-
-`_extract_choice()` 提取逻辑：
-1. 先走 `_extract_official_answer()` 拿到"最终答案"
-2. 对结果做 `fullmatch(r"\(?\s*([A-Z])\s*\)?")` 或 `search(r"answer/option/choice is X")`
-
-若模型输出长推理链，`_extract_official_answer` 会返回完整原文（无 `<final>` / `\boxed{}` / `####` 时的兜底），
-这时 fullmatch 大概率失败，keyword search 也可能找不到。
-`_extract_choice` 返回 `""`，分支 `if pred_choice and gt_choice` 不成立，
-回退到 normalized 精确匹配——对 MCQ 来说效果极差。
-
-### 问题 5：角度单位不一致（中风险，SciInstruct/WildSci）
-
-`_normalize()` 第 385 行：`^\\circ` 被直接删除（`30°` → `30`）。
-但 `\pi/6` 经过 normalize 后仍为 `\pi/6`，与 `30` 不等；
-sympy 也不做度-弧度转换，`sympy.simplify(30 - pi/6)` ≠ 0。
-含角度的物理/科学题若答案一侧用度、另一侧用弧度，**本地规则无法识别等价**。
-
-### 问题 6：`_extract_official_answer` 对 gt 的兜底返回原始全文（中风险）
-
-若 ground_truth 不含 `<final>`、`\boxed{}`、`####`、"answer is" 等标志，
-函数最终返回完整原始字符串（L427 `return raw`）。
-一旦 gt 原文很长，normalized 比较和 sympy 解析均会失败，
-LOCAL_RULE_ONLY_SOURCES 中直接返回 0.0，形成**系统性漏判**。
+> **重要**：当前代码**没有**按数据集屏蔽 API 的逻辑（旧版的 `LOCAL_RULE_ONLY_SOURCES` 已被移除）。
+> 所有数据集在本地规则失败后，都会尝试 LLM Judge；只有 API 不可用时才退化到兜底匹配。
 
 ---
 
-## 各数据集风险汇总
+## 二、本地规则栈 `_local_rule_score()`
 
-| 数据集 | 主要答案类型 | 核心风险 | 整体评估 |
-|--------|------------|---------|---------|
-| **WildSci** | 选择题 A/B/C/D | 推理链过长导致选项提取失败；角度单位不一致 | 基本适合，MCQ 格式规范时可靠 |
-| **DeepMath** | 数值、多项式、根式 | 分数写法不一致（`\frac` vs `/`）；sympy 不可用时大量漏判 | 依赖 sympy，有风险 |
-| **Metamath** | 形式化证明结论 | gt 格式若非标准 boxed/tagged，兜底返回全文必然失败 | 风险较高，需确认 gt 格式 |
-| **OpenR1Math** | 竞赛数值/分数/根式 | 同 DeepMath；含 `=` 的方程解跳过 sympy | 基本适合，纯数值答案可靠 |
-| **SciInstruct** | 物理公式、数值 | 角度单位 + 含等号表达式 + 复杂物理量符号解析 | 风险较高，复合公式易漏判 |
+### WildSci（独立分支）
 
-## 环境变量
+```python
+if source == "wildsci":
+    pred_choice = _extract_choice(pred_candidate)  # 提取 A/B/C/D
+    gt_choice   = _extract_choice(gt_final)
+    if pred_choice and gt_choice:
+        return 1.0 if match else 0.0
+    return 0.0, "local_choice_missing"   # ← 提取失败直接返回 0，不继续走下面的规则
+```
+
+WildSci 的本地规则**只走选项提取**，失败即为 0，不再尝试数值/符号等比较。
+
+### 其他数学/科学数据集（按顺序短路）
+
+| 步骤 | 函数 | 说明 |
+|------|------|------|
+| ① | `_normalize(pred) == _normalize(gt)` | 字符串精确匹配（去 LaTeX 符号、空白等） |
+| ② | `_numeric_equal(pred, gt)` | 浮点数值比较，相对容差 1e-6 |
+| ③ | `_prime_math_equal(pred, gt)` | 调用 `verl.utils.reward_score.prime_math.grade_answer` |
+| ④ | `_math_verify_equal(pred, gt)` | 调用 `verl.utils.reward_score.math_verify.compute_score`；pred 若无 `\boxed` 则自动包裹 |
+| ⑤ | 多元组匹配 | 逗号/分号拆分后，对每个 part 依次尝试 ①②③④⑤ |
+| ⑥ | `_sympy_equal(pred, gt)` | SymPy 符号化简后差为 0 |
+
+以上任一命中即返回 `score=1.0`，全部失败才进入 LLM Judge。
+
+---
+
+## 三、不用 API 时的覆盖情况
+
+### 3.1 本地规则能覆盖的情况
+
+| 类型 | 示例 | 覆盖路径 |
+|------|------|---------|
+| 纯整数/小数 | `42`、`3.14` | ① normalized 或 ② numeric |
+| 百分数 | `50%` vs `0.5` | ② numeric（`%` → `/100`）|
+| 分数（相同写法） | `\frac{1}{2}` vs `\frac{1}{2}` | ① normalized |
+| 分数（不同写法） | `\frac{1}{2}` vs `1/2` | ③ prime_math 或 ④ math_verify 或 ⑥ sympy |
+| 根式等价 | `\sqrt{2}/2` vs `\frac{\sqrt{2}}{2}` | ③④⑥ |
+| 多元组 | `1, 2` vs `2, 1` | ⑤ 无序匹配 |
+| MCQ（WildSci） | `(B)` vs `B` | WildSci 分支 `_extract_choice` |
+
+### 3.2 本地规则覆盖不到、依赖 API 的情况
+
+| 场景 | 原因 | 风险数据集 |
+|------|------|-----------|
+| WildSci 选项提取失败 | 模型输出推理链过长，无法干净提取单字母；提取失败后直接返回 0，不走其他规则，无 API 则落到兜底匹配（几乎必然失败） | WildSci |
+| 含 `=`/`<`/`>` 的答案 | `_parse_sympy_expr` 遇到 `[<>=]` 直接返回 `None`，方程解（`x=3`）、不等式区间跳过 sympy | DeepMath、SciInstruct |
+| `\frac` 写法差异且 prime_math/math_verify/sympy 均不可用 | `_normalize()` 把 `\frac{1}{2}` 处理为 `\frac12`（删大括号），与 `1/2` 字符串不等；依赖后续三个验证器补救 | 全部 |
+| 度数与弧度不一致 | `_normalize()` 把 `^\\circ` 直接删除（`30°`→`30`），但弧度 `\pi/6` 保留原样，sympy 不做度弧转换 | WildSci、SciInstruct |
+| 复杂符号式 | 超出 `_latex_to_sympy_text` 转换能力（嵌套命令、不支持的函数）导致 sympy parse 失败 | DeepMath、Metamath、SciInstruct |
+| gt 无标准格式 | `_extract_official_answer` 在无 `<final>`/`\boxed{}`/`####`/`answer is` 时返回原始全文，后续所有比较几乎失败 | 任意 |
+
+---
+
+## 四、各数据集综合评估
+
+### WildSci
+
+- **本地规则**：专门走选项提取分支，格式规范时可靠。
+- **无 API 风险**：模型输出冗长推理时选项提取失败，且失败后**不继续走数学规则**，直接返回 0 进 LLM Judge；无 API 则兜底匹配 MCQ 长文本，几乎必然失败。
+- **建议**：通过 prompt 要求模型最后单独输出 `<final>A</final>` 或 `\boxed{A}`，确保 `_extract_choice` 能命中。
+
+### DeepMath / OpenR1Math
+
+- **本地规则**：数值答案覆盖好；符号式依赖 prime_math + math_verify + sympy 三层保险。
+- **无 API 风险**：方程解形式（`x = 3`）被 `[<>=]` 过滤跳过 sympy；三个验证器均不可用时分数写法不一致会误判；兜底 normalized 匹配对提取后的答案字符串还算合理，但不等价写法仍会漏判。
+- **建议**：确认 `prime_math` 和 `math_verify` 模块可用；竞赛题答案以数值/根式为主时无 API 基本可行。
+
+### Metamath
+
+- **本地规则**：形式化证明的结论若为标准数学表达式，同 DeepMath 路径。
+- **无 API 风险**：Metamath 的 ground_truth 若是定理名或证明步骤（而非数值/解析式），`_extract_official_answer` 返回原文，normalized 匹配和 sympy 均不适用，本地规则必然失败；无 API 则判 0。
+- **建议**：检查数据集 gt 格式，若为数值/解析式结论则可接受；若为形式化证明文本则必须有 API。
+
+### SciInstruct
+
+- **本地规则**：走标准数学规则路径，无特殊处理。
+- **无 API 风险**：物理题常见问题：① 带单位答案（`9.8 m/s²` vs `9.8`）normalized 后仍不等；② 度/弧度混用；③ 向量、矩阵等结构化答案超出 sympy 解析能力。
+- **建议**：物理/科学题强烈建议保留 API；或对 gt 做预处理统一单位和格式。
+
+---
+
+## 五、关键依赖项
+
+| 依赖 | 检测方式 | 缺失时影响 |
+|------|---------|-----------|
+| `sympy` | `try/import` 包裹，失败则 `_sympy = None` | `_sympy_equal` 始终返回 `False` |
+| `math_verify` | `importlib.util.find_spec("math_verify")` | `_math_verify_equal` 始终返回 `False` |
+| `verl.utils.reward_score.prime_math` | 运行时 `try/import` | `_prime_math_equal` 始终返回 `False` |
+| DeepSeek API Key | `DEEPSEEK_API_KEY` / `LLM_API_KEY` / `API_KEY` 任一非空 | 跳过 LLM Judge，落到兜底匹配 |
+
+---
+
+## 六、环境变量
 
 | 变量 | 作用 | 默认值 |
 |------|------|-------|
-| `LLM_API_KEY` / `DEEPSEEK_API_KEY` | API 鉴权 Key | 无（必填，否则跳过 LLM Judge） |
-| `LLM_API_BASE_URL` / `BASE_URL` | API Base URL | `https://api.deepseek.com` |
+| `LLM_API_KEY` / `API_KEY` / `DEEPSEEK_API_KEY` | API 鉴权 Key（优先级从左到右） | 无 |
+| `LLM_API_URL` / `DEEPSEEK_API_URL` | 完整 Chat Completions URL | 自动构建 |
+| `LLM_API_BASE_URL` / `BASE_URL` / `DEEPSEEK_API_BASE_URL` | Base URL（自动补 `/v1/chat/completions`） | `https://api.deepseek.com` |
 | `LLM_JUDGE_MODEL` / `DEEPSEEK_MODEL` | 判分模型名 | `deepseek-v4-flash` |
 | `LLM_JUDGE_MAX_TOKENS` | Judge 响应最大 token 数 | `128` |
+| `LOCAL_MATH_VERIFY_TIMEOUT` | `math_verify` 单次超时（秒） | `5` |
 | `REWARD_DEBUG_LOG` | 调试日志路径（JSONL） | 不写日志 |
-| `REWARD_DEBUG_LIMIT` | 调试日志最大条数 | `1000` |
+| `REWARD_DEBUG_LIMIT` | 调试日志最大条数（上限 1000） | `1000` |

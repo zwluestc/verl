@@ -59,7 +59,6 @@ _BOXED_PATTERN = re.compile(r"\\boxed\s*{", re.IGNORECASE)
 _CORRECT_FLAG_PATTERN = re.compile(r'"correct"\s*:\s*(true|false)', re.IGNORECASE)
 REWARD_DEBUG_LOG = os.environ.get("REWARD_DEBUG_LOG", "")
 REWARD_DEBUG_LIMIT = min(int(os.environ.get("REWARD_DEBUG_LIMIT", "1000")), 1000)
-LOCAL_RULE_ONLY_SOURCES = {"deepmath", "metamath", "openr1math", "sciinstruct", "wildsci"}
 HAS_MATH_VERIFY = importlib.util.find_spec("math_verify") is not None
 
 try:
@@ -770,23 +769,7 @@ def compute_score(data_source=None, solution_str=None, ground_truth=None, extra_
         )
         return score
 
-    if _to_text(data_source).strip().lower() in LOCAL_RULE_ONLY_SOURCES:
-        _maybe_log_reward_case(
-            question=question,
-            gt_final=gt_final,
-            pred_final=pred_candidate,
-            score=0.0,
-            reason=(
-                f"{local_reason}_api_disabled_tail_fallback"
-                if used_tail_fallback
-                else f"{local_reason}_api_disabled"
-            ),
-            used_llm_judge=False,
-            raw_prediction=pred_text,
-        )
-        return 0.0
-
-    # 2. LLM-as-judge on final answers only for datasets that are not rule-only.
+    # 2. LLM-as-judge on final answers only when local verifiers cannot prove correctness.
     llm_score = llm_judge(question, gt_final, pred_candidate)
     if llm_score != -1.0:
         score = max_reward_if_correct if llm_score > 0.0 else 0.0
