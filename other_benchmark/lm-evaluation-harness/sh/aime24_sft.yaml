@@ -1,0 +1,27 @@
+task: aime24_sft
+dataset_path: Maxwell-Jia/AIME_2024
+output_type: generate_until
+test_split: train
+doc_to_text: "请解答以下问题，并给出详细推导或分析过程：\n{{Problem}}"
+doc_to_target: "{{Answer}}"
+metric_list:
+  - metric: exact_match
+    aggregation: mean      # 单次的 mean 就是普通的 Accuracy 准确率
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+generation_kwargs:
+  until:
+    - "<|im_end|>"
+    - "<|endoftext|>"
+  do_sample: true        # 必须为 true，否则下面的采样参数会失效
+  temperature: 0.6       # 引入适度的随机性
+  top_p: 0.95            # 核心修改：核采样阈值
+  top_k: 20              # 核心修改：截断低概率词
+  max_gen_toks: 32768    # 保持足够大的生成长度，确保长思维链 (CoT) 不被截断
+filter_list:
+  - name: "extract_boxed_answer"
+    filter:
+      - function: "regex"
+        regex_pattern: "\\\\boxed\\{([^}]*)\\}"
+      - function: "take_first"
