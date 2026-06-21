@@ -1,0 +1,31 @@
+task: mixed_pass8
+dataset_path: json
+dataset_kwargs:
+  data_files:
+    train: data/mixed_10.jsonl
+output_type: generate_until
+test_split: train
+doc_to_text: "{{instruction}}\n{{input}}\n\n请在推理后，将最终答案放在 <final_answer> 和 </final_answer> 标签之间。"
+doc_to_target: "{{output}}"
+repeats: 8
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+    ignore_case: true
+    ignore_punctuation: true
+generation_kwargs:
+  until:
+    - "<|im_end|>"
+    - "<|endoftext|>"
+  do_sample: true
+  temperature: 0.6
+  top_p: 0.95
+  top_k: 20
+  max_gen_toks: 24576
+filter_list:
+  - name: "extract_final_answer"
+    filter:
+      - function: "regex"
+        regex_pattern: "<final_answer>(.*?)</final_answer>"
+      - function: "take_first"
