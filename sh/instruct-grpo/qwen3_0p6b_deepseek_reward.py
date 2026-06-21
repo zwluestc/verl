@@ -19,7 +19,7 @@ Rules:
 2. Different notations, equivalent formulas, or different order of terms are acceptable if mathematically equivalent.
 3. If the candidate misses critical terms, has wrong signs, wrong constants, or reaches an incorrect final formula, mark as WRONG.
 4. If the candidate gives no recognizable final answer, mark as WRONG.
-5. Output MUST be valid JSON: {"correct": true/false, "reason": "brief explanation"}
+5. Output MUST be valid JSON: {"correct": true/false}
 6. Do NOT output thinking tags like <think>. Output JSON directly.
 """
 
@@ -142,7 +142,7 @@ def llm_judge(question: str, reference: str, candidate: str) -> float:
 {candidate}
 
 Judge: Does the Student Final Answer reach a conclusion equivalent to the Reference Final Answer?
-Respond with JSON only: {{"correct": true/false, "reason": "..."}}
+Respond with JSON only: {{"correct": true/false}}
 """
     headers = {
         "Content-Type": "application/json",
@@ -155,7 +155,7 @@ Respond with JSON only: {{"correct": true/false, "reason": "..."}}
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.0,
-        "max_tokens": 8192,
+        "max_tokens": int(os.environ.get("LLM_JUDGE_MAX_TOKENS", "128")),
     }
 
     content = ""
