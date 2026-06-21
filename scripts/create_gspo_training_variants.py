@@ -8,12 +8,12 @@ import re
 from pathlib import Path
 
 
-SOURCES = ("Metamath", "OpenR1math", "Deepmath")
+SOURCES = ("Metamath", "OpenR1math", "Deepmath", "SciInstruct", "SciRIFF", "WildSci")
 
 
 def replace_assignment(text: str, name: str, value: str) -> str:
     pattern = re.compile(rf"^({re.escape(name)}\s*=\s*)(.*)$", flags=re.MULTILINE)
-    replacement = rf'\1"{value}"'
+    replacement = rf"\1${{{name}:-{value}}}"
     new_text, count = pattern.subn(replacement, text, count=1)
     if count != 1:
         raise ValueError(f"Could not find assignment for {name}")
@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
         default="/mnt/data/zwl/verl/data/rl/math_10000",
     )
     parser.add_argument(
+        "--sources",
+        nargs="+",
+        default=list(SOURCES),
+        choices=SOURCES,
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=Path("sh/instruct-gspo"),
@@ -75,7 +81,7 @@ def main() -> None:
     suffix = args.base_script.suffix
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    for source in SOURCES:
+    for source in args.sources:
         variant_text = build_variant(base_text, source, args.data_root)
         out_path = args.out_dir / f"{stem}_{source}{suffix}"
         out_path.write_text(variant_text, encoding="utf-8")

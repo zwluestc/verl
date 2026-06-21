@@ -35,7 +35,26 @@ SOURCE_CONFIGS: dict[str, dict[str, Any]] = {
         "dataset_path": "zwhe99/DeepMath-103K",
         "split": "train",
     },
+    "SciInstruct": {
+        "split": "train",
+    },
+    "SciRIFF": {
+        "split": "train",
+    },
+    "WildSci": {
+        "dataset_path": "JustinTX/WildSci",
+        "split": "train",
+    },
 }
+
+SCIENCE_PROMPT_PREFIX = (
+    "Please answer the following scientific instruction. Put your final answer "
+    "within <final>...</final>."
+)
+SCIENCE_MCQ_PROMPT_PREFIX = (
+    "Please solve the following scientific multiple-choice problem. "
+    "Answer with the single correct letter and put it within <final>...</final>."
+)
 
 
 def last_boxed(text: str) -> str | None:
@@ -103,15 +122,141 @@ def normalize_question(text: Any) -> str:
     return re.sub(r"\s+", " ", str(text or "").strip())
 
 
-def load_source_dataset(source: str) -> Dataset:
+def load_local_dataset(input_file: Path) -> Dataset:
+    suffix = input_file.suffix.lower()
+    if suffix in {".json", ".jsonl"}:
+        return load_dataset("json", data_files=str(input_file), split="train")
+    if suffix == ".parquet":
+        return load_dataset("parquet", data_files=str(input_file), split="train")
+    if suffix == ".csv":
+        return load_dataset("csv", data_files=str(input_file), split="train")
+    raise ValueError(f"Unsupported input file extension: {input_file}")
+
+
+def load_source_dataset(
+    source: str,
+    *,
+    input_file: Path | None,
+    dataset_path: str | None,
+    dataset_name: str | None,
+    split: str | None,
+) -> Dataset:
+    if input_file is not None:
+        return load_local_dataset(input_file)
+
     cfg = SOURCE_CONFIGS[source]
-    dataset_name = cfg.get("dataset_name")
+    dataset_path = dataset_path or cfg.get("dataset_path")
+    dataset_name = dataset_name or cfg.get("dataset_name")
+    split = split or cfg.get("split", "train")
+    if not dataset_path:
+        raise ValueError(
+            f"{source} has no built-in dataset path. Pass --input-file or --dataset-path."
+        )
     if dataset_name:
-        return load_dataset(cfg["dataset_path"], dataset_name, split=cfg["split"])
-    return load_dataset(cfg["dataset_path"], split=cfg["split"])
+        return load_dataset(dataset_path, dataset_name, split=split)
+    return load_dataset(dataset_path, split=split)
 
 
-def extract_qa(source: str, row: dict[str, Any]) -> tuple[str, str] | None:
+def extract_messages_qa(messages: Any) -> tuple[str, str] | None:
+    if not isinstance(messages, list):
+        return None
+
+    user_parts: list[str] = []
+    answer = ""
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or message.get("from") or "").lower()
+        content = message.get("content") or message.get("value") or ""
+        content = normalize_question(content)
+        if not content:
+            continue
+        if role in {"user", "human"}:
+            user_parts.append(content)
+        elif role in {"assistant", "gpt", "model"}:
+            answer = content
+
+    question = "\n\n".join(user_parts).strip()
+    if question and answer:
+        return question, answer
+    return None
+
+
+def first_nonempty(row: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        value = normalize_question(row.get(key))
+        if value:
+            return value
+    return ""
+
+
+def format_options(options: Any) -> str:
+    if isinstance(options, dict):
+        return "\n".join(
+            f"({key}) {value}" for key, value in sorted(options.items())
+        )
+    if isinstance(options, list):
+        lines = []
+        for idx, value in enumerate(options):
+            label = chr(ord("A") + idx)
+            lines.append(f"({label}) {value}")
+        return "\n".join(lines)
+    return normalize_question(options)
+
+
+def extract_wildsci_qa(row: dict[str, Any]) -> tuple[str, str] | None:
+    question = normalize_question(row.get("question"))
+    choices = format_options(row.get("options"))
+    answer = clean_answer(row.get("answer"))
+    if not question or not choices or not answer:
+        return None
+    return f"Question: {question}\nChoices:\n{choices}", answer.upper()
+
+
+def extract_instruction_qa(
+    row: dict[str, Any],
+    *,
+    prompt_column: str | None,
+    response_column: str | None,
+) -> tuple[str, str] | None:
+    if prompt_column or response_column:
+        if not prompt_column or not response_column:
+            raise ValueError("--prompt-column and --response-column must be used together.")
+        question = normalize_question(row.get(prompt_column))
+        answer = normalize_question(row.get(response_column))
+        return (question, answer) if question and answer else None
+
+    qa = extract_messages_qa(row.get("messages") or row.get("conversations"))
+    if qa is not None:
+        return qa
+
+    instruction = first_nonempty(
+        row,
+        ("instruction", "prompt", "question", "query", "content", "input_text"),
+    )
+    input_text = ""
+    if "instruction" in row:
+        input_text = first_nonempty(row, ("input", "context"))
+
+    if instruction and input_text:
+        question = f"{instruction}\n\n{input_text}"
+    else:
+        question = instruction or input_text
+
+    answer = first_nonempty(
+        row,
+        ("summary", "output", "response", "answer", "completion", "target"),
+    )
+    return (question, answer) if question and answer else None
+
+
+def extract_qa(
+    source: str,
+    row: dict[str, Any],
+    *,
+    prompt_column: str | None,
+    response_column: str | None,
+) -> tuple[str, str] | None:
     if source == "Metamath":
         question = normalize_question(row.get("query") or row.get("original_question"))
         answer = extract_metamath_answer(row.get("response"))
@@ -121,6 +266,20 @@ def extract_qa(source: str, row: dict[str, Any]) -> tuple[str, str] | None:
     elif source == "Deepmath":
         question = normalize_question(row.get("question"))
         answer = clean_answer(row.get("final_answer"))
+    elif source in {"SciInstruct", "SciRIFF"}:
+        qa = extract_instruction_qa(
+            row,
+            prompt_column=prompt_column,
+            response_column=response_column,
+        )
+        if qa is None:
+            return None
+        question, answer = qa
+    elif source == "WildSci":
+        qa = extract_wildsci_qa(row)
+        if qa is None:
+            return None
+        question, answer = qa
     else:
         raise ValueError(f"Unsupported source: {source}")
 
@@ -139,15 +298,24 @@ def build_record(
     index: int,
     source_index: int,
 ) -> dict[str, Any]:
+    prompt_prefix = (
+        SCIENCE_MCQ_PROMPT_PREFIX
+        if source == "WildSci"
+        else SCIENCE_PROMPT_PREFIX
+        if source in {"SciInstruct", "SciRIFF"}
+        else PROMPT_PREFIX
+    )
     return {
         "data_source": source,
         "prompt": [
             {
                 "role": "user",
-                "content": f"{PROMPT_PREFIX}\n\n{question}",
+                "content": f"{prompt_prefix}\n\n{question}",
             }
         ],
-        "ability": "math",
+        "ability": "science"
+        if source in {"SciInstruct", "SciRIFF", "WildSci"}
+        else "math",
         "reward_model": {
             "style": "rule",
             "ground_truth": answer,
@@ -156,15 +324,27 @@ def build_record(
             "index": index,
             "source_index": source_index,
             "source": source,
+            "prompt": question,
         },
     }
 
 
-def iter_clean_records(source: str, dataset: Dataset) -> Iterable[dict[str, Any]]:
+def iter_clean_records(
+    source: str,
+    dataset: Dataset,
+    *,
+    prompt_column: str | None,
+    response_column: str | None,
+) -> Iterable[dict[str, Any]]:
     seen_questions: set[str] = set()
     out_index = 0
     for source_index, row in enumerate(dataset):
-        qa = extract_qa(source, row)
+        qa = extract_qa(
+            source,
+            row,
+            prompt_column=prompt_column,
+            response_column=response_column,
+        )
         if qa is None:
             continue
 
@@ -212,6 +392,29 @@ def write_parquet(records: list[dict[str, Any]], path: Path) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", choices=sorted(SOURCE_CONFIGS), required=True)
+    parser.add_argument(
+        "--input-file",
+        type=Path,
+        default=None,
+        help="Local JSON/JSONL/Parquet/CSV file. Useful for SciInstruct/SciRIFF.",
+    )
+    parser.add_argument(
+        "--dataset-path",
+        default=None,
+        help="Override Hugging Face dataset path, e.g. org/name.",
+    )
+    parser.add_argument("--dataset-name", default=None)
+    parser.add_argument("--split", default=None)
+    parser.add_argument(
+        "--prompt-column",
+        default=None,
+        help="Explicit prompt column for local/HF instruction data.",
+    )
+    parser.add_argument(
+        "--response-column",
+        default=None,
+        help="Explicit response/reference column for local/HF instruction data.",
+    )
     parser.add_argument("--train-n", type=int, default=10_000)
     parser.add_argument("--val-n", type=int, default=500)
     parser.add_argument("--seed", type=int, default=42)
@@ -226,8 +429,21 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    dataset = load_source_dataset(args.source)
-    records = list(iter_clean_records(args.source, dataset))
+    dataset = load_source_dataset(
+        args.source,
+        input_file=args.input_file,
+        dataset_path=args.dataset_path,
+        dataset_name=args.dataset_name,
+        split=args.split,
+    )
+    records = list(
+        iter_clean_records(
+            args.source,
+            dataset,
+            prompt_column=args.prompt_column,
+            response_column=args.response_column,
+        )
+    )
     train_records, val_records = sample_records(
         records,
         train_n=args.train_n,
