@@ -6,6 +6,7 @@ import os
 import json
 import time
 import fcntl
+import importlib.util
 from urllib.parse import urlparse
 import requests
 from typing import Any
@@ -59,6 +60,7 @@ _CORRECT_FLAG_PATTERN = re.compile(r'"correct"\s*:\s*(true|false)', re.IGNORECAS
 REWARD_DEBUG_LOG = os.environ.get("REWARD_DEBUG_LOG", "")
 REWARD_DEBUG_LIMIT = min(int(os.environ.get("REWARD_DEBUG_LIMIT", "1000")), 1000)
 LOCAL_RULE_ONLY_SOURCES = {"deepmath", "metamath", "openr1math", "sciinstruct", "wildsci"}
+HAS_MATH_VERIFY = importlib.util.find_spec("math_verify") is not None
 
 try:
     import sympy as _sympy
@@ -282,6 +284,15 @@ def _strip_balanced_braces(text: str) -> str:
     return text
 
 
+def _strip_latex_group(text: str) -> str:
+    text = text.strip()
+    if len(text) >= 2 and text[0] == "{" and text[-1] == "}":
+        return text[1:-1].strip()
+    if len(text) >= 2 and text[0] == "(" and text[-1] == ")":
+        return text[1:-1].strip()
+    return text
+
+
 def _extract_last_boxed(text: Any) -> str:
     raw = _to_text(text)
     matches = list(_BOXED_PATTERN.finditer(raw))
@@ -296,6 +307,46 @@ def _extract_last_boxed(text: Any) -> str:
                 if depth == 0:
                     return raw[start:pos].strip()
     return ""
+
+
+def _rewrite_latex_functions(text: str) -> str:
+    def repl_power(match: re.Match) -> str:
+        fn = match.group("fn")
+        power = match.group("power1") or match.group("power2")
+        arg = match.group("arg1") or match.group("arg2") or match.group("arg3") or ""
+        arg = _strip_latex_group(arg)
+        if fn == "ln":
+            fn = "log"
+        return f"{fn}({arg})**({power})"
+
+    def repl_plain(match: re.Match) -> str:
+        fn = match.group("fn")
+        arg = match.group("arg1") or match.group("arg2") or match.group("arg3") or ""
+        arg = _strip_latex_group(arg)
+        if fn == "ln":
+            fn = "log"
+        return f"{fn}({arg})"
+
+    func_names = r"sin|cos|tan|log|ln|exp"
+    arg_pattern = r"(?:{(?P<arg1>[^{}]+)}|\((?P<arg2>[^()]+)\)|(?P<arg3>[A-Za-z][A-Za-z0-9_]*))"
+    power_pattern = (
+        rf"\\(?P<fn>{func_names})\s*\^\s*(?:{{(?P<power1>[^{{}}]+)}}|(?P<power2>[-+]?\d+))\s*"
+        rf"{arg_pattern}"
+    )
+    text = re.sub(power_pattern, repl_power, text)
+
+    plain_pattern = rf"\\(?P<fn>{func_names})\s*{arg_pattern}"
+    text = re.sub(plain_pattern, repl_plain, text)
+    return text
+
+
+def _rewrite_complex_exponentials(text: str) -> str:
+    text = re.sub(r"(?<![A-Za-z])i\s*\*\s*pi(?![A-Za-z])", "I*pi", text)
+    text = re.sub(r"(?<![A-Za-z])i\s*pi(?![A-Za-z])", "I*pi", text)
+    text = re.sub(r"e\s*\*\*\s*\(([^()]+)\)", r"exp(\1)", text)
+    text = re.sub(r"e\s*\*\*\s*([A-Za-z0-9_*/+\-.]+)", r"exp(\1)", text)
+    text = re.sub(r"(?<![A-Za-z])i(?![A-Za-z])", "I", text)
+    return text
 
 
 def _remove_latex_wrappers(text: str) -> str:
@@ -424,8 +475,9 @@ def _latex_to_sympy_text(text: str) -> str:
     text = text.replace("\\,", "").replace("\\;", "").replace("\\:", "").replace("\\!", "")
     text = text.replace("\\times", "*").replace("\\cdot", "*").replace("\\div", "/")
     text = text.replace("\\pi", "pi").replace("\\infty", "oo")
-    text = text.replace("^", "**")
     text = text.replace("%", "/100")
+    text = _rewrite_latex_functions(text)
+    text = text.replace("^", "**")
     text = re.sub(r"\\sqrt\s*{([^{}]+)}", r"sqrt(\1)", text)
     text = re.sub(r"\\sqrt\s*([A-Za-z0-9.]+)", r"sqrt(\1)", text)
 
@@ -441,6 +493,7 @@ def _latex_to_sympy_text(text: str) -> str:
     text = text.replace("[", "(").replace("]", ")")
     text = re.sub(r"\s+", "", text)
     text = _strip_balanced_braces(text)
+    text = _rewrite_complex_exponentials(text)
     return text
 
 
@@ -497,6 +550,29 @@ def _sympy_equal(pred: str, gt: str) -> bool:
     return False
 
 
+def _math_verify_equal(pred: str, gt: str) -> bool:
+    if not HAS_MATH_VERIFY:
+        return False
+
+    try:
+        from verl.utils.reward_score.math_verify import compute_score as math_verify_score
+
+        model_output = pred if "\\boxed" in pred else f"\\boxed{{{pred}}}"
+        timeout = float(os.environ.get("LOCAL_MATH_VERIFY_TIMEOUT", "5"))
+        return math_verify_score(model_output, gt, timeout=timeout) > 0.0
+    except Exception:
+        return False
+
+
+def _prime_math_equal(pred: str, gt: str) -> bool:
+    try:
+        from verl.utils.reward_score.prime_math import grade_answer
+
+        return bool(grade_answer(pred, gt))
+    except Exception:
+        return False
+
+
 def _local_rule_score(pred_candidate: str, gt_final: str, data_source: Any) -> tuple[float, str]:
     source = _to_text(data_source).strip().lower()
 
@@ -505,6 +581,7 @@ def _local_rule_score(pred_candidate: str, gt_final: str, data_source: Any) -> t
         gt_choice = _extract_choice(gt_final)
         if pred_choice and gt_choice:
             return (1.0, "local_choice_match") if pred_choice == gt_choice else (0.0, "local_choice_mismatch")
+        return 0.0, "local_choice_missing"
 
     pred_answer = _extract_official_answer(pred_candidate)
     gt_answer = _extract_official_answer(gt_final)
@@ -517,6 +594,12 @@ def _local_rule_score(pred_candidate: str, gt_final: str, data_source: Any) -> t
     if _numeric_equal(pred_answer, gt_answer):
         return 1.0, "local_numeric_equivalence"
 
+    if _prime_math_equal(pred_answer, gt_answer):
+        return 1.0, "local_prime_math_equivalence"
+
+    if _math_verify_equal(pred_answer, gt_answer):
+        return 1.0, "local_math_verify_equivalence"
+
     pred_parts = _split_top_level(pred_answer)
     gt_parts = _split_top_level(gt_answer)
     if len(pred_parts) > 1 and len(pred_parts) == len(gt_parts):
@@ -526,6 +609,8 @@ def _local_rule_score(pred_candidate: str, gt_final: str, data_source: Any) -> t
                 if (
                     _normalize(pred_part) == _normalize(gt_part)
                     or _numeric_equal(pred_part, gt_part)
+                    or _prime_math_equal(pred_part, gt_part)
+                    or _math_verify_equal(pred_part, gt_part)
                     or _sympy_equal(pred_part, gt_part)
                 ):
                     unmatched.pop(idx)
