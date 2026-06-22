@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate GSPO-10000 on benchamek/data/benchmark.jsonl.
+"""Evaluate GSPO-10000 on our_benchamek/data/benchmark.jsonl.
 
 Pipeline:
 1. Generate 32 sampled responses for every benchmark item with vLLM.
@@ -26,14 +26,14 @@ from pathlib import Path
 from typing import Any
 
 
-DEFAULT_DATA = Path("benchamek/data/benchmark.jsonl")
+DEFAULT_DATA = Path("our_benchamek/data/benchmark.jsonl")
 DEFAULT_MODEL = "/mnt/oss/zwl/checkpoints/qwen3_4b_instruct_2507_gspo_mixed_10000_v1"
-DEFAULT_OUT = Path("benchamek/test/gspo-10000.results.jsonl")
-DEFAULT_SUMMARY = Path("benchamek/test/gspo-10000.summary.json")
+DEFAULT_OUT = Path("our_benchamek/test/gspo-10000.results.jsonl")
+DEFAULT_SUMMARY = Path("our_benchamek/test/gspo-10000.summary.json")
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_JUDGE_MODEL = "deepseek-v4-flash"
 
-PLACEHOLDERS = {"", "...", "...", "N/A", "n/a", "None", "none", "null", "NULL"}
+PLACEHOLDERS = {"", "...", "…", "N/A", "n/a", "None", "none", "null", "NULL"}
 
 
 @dataclass(frozen=True)
@@ -129,6 +129,14 @@ def extract_reference_answer(reference: str) -> str:
     return reference
 
 
+def normalize_for_exact_match(text: str) -> str:
+    return re.sub(r"\s+", " ", strip_think(text)).strip()
+
+
+def normalized_exact_match(candidate: str, reference: str) -> bool:
+    return normalize_for_exact_match(candidate) == normalize_for_exact_match(reference)
+
+
 
 
 JUDGE_SYSTEM_PROMPT = """You are a strict but fair expert judge for symbolic scientific answers.
@@ -152,14 +160,16 @@ def build_judge_prompt(question: str, reference: str, candidate: str) -> str:
 [Student candidate answer]
 {candidate}
 
-Is the student candidate equivalent to the reference answer? Return JSON only."""
+Is the student candidate equivalent to the reference answer? Reply with exactly one word: true or false."""
 
 
 def parse_judge_response(raw: str) -> bool:
     cleaned = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL | re.IGNORECASE).strip().lower()
-    if "true" in cleaned:
+    if cleaned == "true":
         return True
-    return False
+    if cleaned == "false":
+        return False
+    raise ValueError(f"Judge response must be exactly 'true' or 'false', got: {raw!r}")
 
 
 def load_vllm_model(model_path: str, tensor_parallel_size: int, gpu_memory_utilization: float):
@@ -212,7 +222,7 @@ def generate_responses(args: argparse.Namespace, records: list[dict[str, Any]]) 
     return generated
 
 
-def call_deepseek_judge(args: argparse.Namespace, prompt: str) -> dict[str, Any]:
+def call_deepseek_judge(args: argparse.Namespace, prompt: str) -> bool:
     from openai import OpenAI
 
     client = OpenAI(api_key=os.environ.get("DEEPSEEK_API_KEY"), base_url=args.deepseek_base_url)
@@ -237,7 +247,7 @@ def call_deepseek_judge(args: argparse.Namespace, prompt: str) -> dict[str, Any]
             if attempt >= args.judge_retries:
                 break
             time.sleep(args.judge_retry_sleep * (2**attempt))
-    return False
+    raise RuntimeError(f"DeepSeek judge failed after {args.judge_retries + 1} attempts: {last_error}") from last_error
 
 
 def load_hf_judge(model_path: str, device_map: str):
@@ -294,6 +304,15 @@ def score_records(args: argparse.Namespace, records: list[dict[str, Any]]) -> li
         judge_tasks: list[tuple[int, str, str, str]] = []
         for run_idx, response in enumerate(item["responses"], 1):
             candidate, extraction_method = extract_candidate_answer(response)
+            if normalized_exact_match(candidate, reference):
+                run_scores[run_idx - 1] = {
+                    "run": run_idx,
+                    "score": 1.0,
+                    "method": "normalized_exact_match",
+                    "extraction_method": extraction_method,
+                    "candidate_answer": candidate,
+                }
+                continue
             prompt = build_judge_prompt(item["input"], reference, candidate)
             judge_tasks.append((run_idx, extraction_method, candidate, prompt))
 
@@ -364,7 +383,7 @@ def build_summary(args: argparse.Namespace, scored: list[dict[str, Any]], n_item
         "judge_model": args.judge_model,
         "deepseek_base_url": args.deepseek_base_url if args.judge_backend == "deepseek-api" else None,
         "candidate_rule": "last non-empty <final>...</final>, else last 1000 chars of full response",
-        "score_rule": "all responses scored by llm_judge against raw output field; 1.0/0.0",
+        "score_rule": "normalized exact match first, then llm_judge against raw output field; judge errors fail the run",
         "run_accuracy": run_accuracy,
         "mean_accuracy_across_runs": statistics.mean(item["accuracy"] for item in run_accuracy),
         "overall_accuracy": (sum(all_values) / len(all_values)) if all_values else 0.0,
@@ -380,7 +399,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--deepseek-base-url", default=DEFAULT_DEEPSEEK_BASE_URL)
     parser.add_argument("--judge-model-path", default=os.environ.get("JUDGE_MODEL_PATH", DEFAULT_MODEL))
-    parser.add_argument("--generated", type=Path, default=Path("benchamek/test/gspo-10000.generations.jsonl"))
+    parser.add_argument("--generated", type=Path, default=Path("our_benchamek/test/gspo-10000.generations.jsonl"))
     parser.add_argument("--output", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
     parser.add_argument("--runs", type=int, default=32)

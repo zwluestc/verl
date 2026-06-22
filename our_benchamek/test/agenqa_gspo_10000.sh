@@ -8,14 +8,14 @@ fi
 
 cd "$(dirname "$0")/../.."
 
-python benchamek/test/eval_gspo_10000.py \
-  --data benchamek/data/benchmark.jsonl \
+python our_benchamek/test/eval_gspo_10000.py \
+  --data our_benchamek/data/benchmark.jsonl \
   --model-path /mnt/oss/zwl/checkpoints/qwen3_4b_instruct_2507_gspo_mixed_10000_v1/global_step_1250/huggingface \
   --runs 32 \
   --tensor-parallel-size 4 \
   --judge-backend deepseek-api \
   --judge-model deepseek-v4-flash \
-  --deepseek-base-url https://www.dmxapi.cn/v1/chat/completions \
+  --deepseek-base-url https://www.dmxapi.cn/v1 \
   --judge-max-workers 16 \
-  --output benchamek/test/agenqa-gspo-10000.results.jsonl \
-  --summary benchamek/test/agenqa-gspo-10000.summary.json
+  --output our_benchamek/test/agenqa-gspo-10000.results.jsonl \
+  --summary our_benchamek/test/agenqa-gspo-10000.summary.json
