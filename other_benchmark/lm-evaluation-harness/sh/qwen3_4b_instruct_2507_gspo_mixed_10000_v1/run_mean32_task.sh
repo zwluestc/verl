@@ -16,10 +16,22 @@ WORK_DIR=$(cd "$(dirname "$0")/../.."; pwd)
 cd "$WORK_DIR"
 export PYTHONPATH="${PYTHONPATH:-}:$WORK_DIR"
 
-MODEL_PATH="${MODEL_PATH:-/mnt/oss/zwl/checkpoints/qwen3_4b_instruct_2507_gspo_mixed_10000_v1/global_step_975/actor/huggingface}"
+MODEL_PATH="${MODEL_PATH:-/mnt/oss/zwl/checkpoints/qwen3_4b_instruct_2507_gspo_mixed_10000_v1/global_step_1250/huggingface}"
 TP_SIZE="${TP_SIZE:-4}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.8}"
 DTYPE="${DTYPE:-bfloat16}"
+
+if [ ! -d "$MODEL_PATH" ]; then
+    echo "Model path does not exist: ${MODEL_PATH}" >&2
+    echo "Set MODEL_PATH to a Hugging Face checkpoint directory before running." >&2
+    exit 2
+fi
+
+if ! find "$MODEL_PATH" -maxdepth 1 -type f \( -name "*.safetensors" -o -name "pytorch_model*.bin" -o -name "*.pt" \) | grep -q .; then
+    echo "No model weight files found under: ${MODEL_PATH}" >&2
+    echo "Expected files like *.safetensors or pytorch_model*.bin." >&2
+    exit 2
+fi
 
 RESULT_DIR="${RESULT_DIR:-./results_qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mean32}"
 LOG_DIR="${LOG_DIR:-./logs_qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mean32}"

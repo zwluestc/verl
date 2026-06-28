@@ -21,6 +21,18 @@ TP_SIZE="${TP_SIZE:-4}"
 GPU_MEMORY_UTILIZATION="${GPU_MEMORY_UTILIZATION:-0.8}"
 DTYPE="${DTYPE:-bfloat16}"
 
+if [ ! -d "$MODEL_PATH" ]; then
+    echo "Model path does not exist: ${MODEL_PATH}" >&2
+    echo "Set MODEL_PATH to a Hugging Face checkpoint directory before running." >&2
+    exit 2
+fi
+
+if ! find "$MODEL_PATH" -maxdepth 1 -type f \( -name "*.safetensors" -o -name "pytorch_model*.bin" -o -name "*.pt" \) | grep -q .; then
+    echo "No model weight files found under: ${MODEL_PATH}" >&2
+    echo "Expected files like *.safetensors or pytorch_model*.bin." >&2
+    exit 2
+fi
+
 RESULT_DIR="${RESULT_DIR:-./results_WildSci_mean32}"
 LOG_DIR="${LOG_DIR:-./logs_WildSci_mean32}"
 mkdir -p "$RESULT_DIR" "$LOG_DIR"
