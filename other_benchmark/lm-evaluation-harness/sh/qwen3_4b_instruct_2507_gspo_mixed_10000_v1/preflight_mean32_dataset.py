@@ -9,6 +9,8 @@ from datasets.exceptions import DatasetNotFoundError
 
 
 TASK_TO_YAML = {
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_agieval_gaokao_chemistry_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_agieval_gaokao_chemistry_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_agieval_gaokao_physics_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_agieval_gaokao_physics_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_aime24_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_aime24_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_aime25_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_aime25_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_amo_bench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_amo_bench_mean32.yaml",
@@ -16,8 +18,18 @@ TASK_TO_YAML = {
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_gpqa_diamond_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_gpqa_diamond_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_gpqa_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_gpqa_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_hmmt_feb_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_hmmt_feb_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_matscibench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_matscibench_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_chemistry_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_chemistry_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_engineering_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_engineering_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_math_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_math_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_physics_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_mmlu_pro_physics_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_olympiadbench_physics_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_olympiadbench_physics_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_phybench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_phybench_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_qcbench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_qcbench_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_scibench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_scibench_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_sciq_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_sciq_mean32.yaml",
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_theoremqa_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_theoremqa_mean32.yaml",
 }
 
 
