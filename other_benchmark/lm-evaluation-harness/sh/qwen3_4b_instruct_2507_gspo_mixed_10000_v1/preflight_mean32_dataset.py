@@ -30,6 +30,8 @@ TASK_TO_YAML = {
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_scibench_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_scibench_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_sciq_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_sciq_mean32.yaml",
     "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_theoremqa_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_theoremqa_mean32.yaml",
+
+    "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_abench_physics_mean32": "qwen3_4b_instruct_2507_gspo_mixed_10000_v1_abench_physics_mean32.yaml",
 }
 
 

@@ -143,11 +143,13 @@ def write_summary(output_file: Path, task_name: str, sample_path: Path, samples:
             doc = sample.get("doc", {})
             question = (
                 doc.get("question")
+                or doc.get("Question")
                 or doc.get("Problem")
                 or doc.get("problem")
                 or doc.get("problem_text")
                 or doc.get("prompt")
                 or doc.get("query")
+                or doc.get("input")
                 or ""
             )
             f.write("=" * 100 + "\n")

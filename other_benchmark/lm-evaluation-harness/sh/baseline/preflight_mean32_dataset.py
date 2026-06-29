@@ -26,6 +26,10 @@ TASK_TO_YAML = {
     "baseline_scibench_mean32": "baseline_scibench_mean32.yaml",
     "baseline_sciq_mean32": "baseline_sciq_mean32.yaml",
     "baseline_theoremqa_mean32": "baseline_theoremqa_mean32.yaml",
+
+    "baseline_qcbench_mean32": "baseline_qcbench_mean32.yaml",
+    "baseline_abench_physics_mean32": "baseline_abench_physics_mean32.yaml",
+    "baseline_olympiadbench_physics_mean32": "baseline_olympiadbench_physics_mean32.yaml",
 }
 
 

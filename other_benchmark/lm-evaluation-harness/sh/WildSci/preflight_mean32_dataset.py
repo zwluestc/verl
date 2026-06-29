@@ -26,6 +26,10 @@ TASK_TO_YAML = {
     "WildSci_scibench_mean32": "WildSci_scibench_mean32.yaml",
     "WildSci_sciq_mean32": "WildSci_sciq_mean32.yaml",
     "WildSci_theoremqa_mean32": "WildSci_theoremqa_mean32.yaml",
+
+    "WildSci_qcbench_mean32": "WildSci_qcbench_mean32.yaml",
+    "WildSci_abench_physics_mean32": "WildSci_abench_physics_mean32.yaml",
+    "WildSci_olympiadbench_physics_mean32": "WildSci_olympiadbench_physics_mean32.yaml",
 }
 
 

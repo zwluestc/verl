@@ -26,6 +26,10 @@ TASK_TO_YAML = {
     "Deepmath_scibench_mean32": "Deepmath_scibench_mean32.yaml",
     "Deepmath_sciq_mean32": "Deepmath_sciq_mean32.yaml",
     "Deepmath_theoremqa_mean32": "Deepmath_theoremqa_mean32.yaml",
+
+    "Deepmath_qcbench_mean32": "Deepmath_qcbench_mean32.yaml",
+    "Deepmath_abench_physics_mean32": "Deepmath_abench_physics_mean32.yaml",
+    "Deepmath_olympiadbench_physics_mean32": "Deepmath_olympiadbench_physics_mean32.yaml",
 }
 
 

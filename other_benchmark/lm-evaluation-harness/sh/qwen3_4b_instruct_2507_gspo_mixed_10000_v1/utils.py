@@ -97,7 +97,7 @@ def _first_answer(value):
 
 
 def _answer_from_doc(doc):
-    for key in ("Answer", "answer", "answer_number", "final_answer"):
+    for key in ("Answer", "answer", "answer_number", "final_answer", "output", "target", "reference"):
         if key in doc:
             return _first_answer(doc[key])
     raise KeyError(f"No answer field found in doc keys: {list(doc.keys())}")
@@ -161,7 +161,8 @@ def process_text_only_docs(dataset):
     def _has_no_image(doc):
         picture = doc.get("Picture")
         image = doc.get("image")
-        return picture in (None, "") and image in (None, "")
+        images = doc.get("images")
+        return picture in (None, "") and image in (None, "") and images in (None, "", "[]", [])
 
     return dataset.filter(_has_no_image)
 
@@ -366,3 +367,58 @@ def doc_to_matscibench_text(doc):
         lines.append(f"The expected unit is: {unit}")
     lines.append("Answer:")
     return "\n".join(lines)
+
+
+def _extract_numeric_value(text):
+    text = _normalize_math_answer(text)
+    # Prefer the final number because model outputs often include a short derivation before \boxed{}.
+    matches = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", str(text))
+    if not matches:
+        return None
+    try:
+        return float(matches[-1])
+    except ValueError:
+        return None
+
+
+def _numeric_equal(prediction, target, rel_tol=1e-3, abs_tol=1e-2):
+    pred_num = _extract_numeric_value(prediction)
+    target_num = _extract_numeric_value(target)
+    if pred_num is None or target_num is None:
+        return _math_equal(prediction, target)
+    return abs(pred_num - target_num) <= max(abs_tol, rel_tol * abs(target_num))
+
+
+def process_numeric_mean32(doc, results):
+    responses = _unwrap_repeated_responses(results)
+    target = _answer_from_doc(doc)
+    return {"exact_match": _mean(_numeric_equal(response, target) for response in responses)}
+
+
+def process_olympiadbench_physics_docs(dataset):
+    def _is_physics_text_only(doc):
+        source = str(doc.get("source") or "").lower()
+        final_answer = _first_answer(doc.get("final_answer"))
+        images = doc.get("images")
+        has_image = images not in (None, "", "[]", [])
+        return "physics" in source and not has_image and final_answer not in (None, "")
+
+    return dataset.filter(_is_physics_text_only)
+
+
+def doc_to_abench_physics_text(doc):
+    question = doc.get("question") or doc.get("problem") or doc.get("input") or doc.get("prompt")
+    return "\n".join(
+        [
+            f"Question: {question}",
+            "Please solve the physics problem. Put only the final numerical answer in \\boxed{}.",
+            "Answer:",
+        ]
+    )
+
+
+def doc_to_abench_physics_target(doc):
+    for key in ("answer", "Answer", "output", "target", "reference", "final_answer"):
+        if key in doc:
+            return _first_answer(doc[key])
+    raise KeyError(f"No ABench answer field found in doc keys: {list(doc.keys())}")
